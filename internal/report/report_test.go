@@ -76,6 +76,27 @@ func TestGroundingStatusVocabulary(t *testing.T) {
 	}
 }
 
+func TestGroundingStateReasonMatrix(t *testing.T) {
+	// Plan gate: the checked matrix of the 4 grounding states × reason states
+	// must round-trip through the JSON contract losslessly.
+	for _, state := range []string{Grounded, Contradicted, NotInContext, Ungrounded} {
+		for _, reason := range []string{"", ReasonInvalid, ReasonTimeout} {
+			c := Claim{ID: "c0", Text: "t", Stance: StanceAsserted, Grounding: state, GroundingReason: reason}
+			b, err := json.Marshal(&c)
+			if err != nil {
+				t.Fatalf("marshal %s/%s: %v", state, reason, err)
+			}
+			var back Claim
+			if err := json.Unmarshal(b, &back); err != nil {
+				t.Fatalf("unmarshal %s/%s: %v", state, reason, err)
+			}
+			if back.Grounding != state || back.GroundingReason != reason {
+				t.Fatalf("matrix loss: %s/%q -> %s/%q", state, reason, back.Grounding, back.GroundingReason)
+			}
+		}
+	}
+}
+
 func TestJUnitPass(t *testing.T) {
 	r := &Report{ID: "pass-job", OK: true, ExitReason: "ok", FailedAssertions: []FailedAssertion{}}
 	xmlDoc := JUnitSuite([]*Report{r})
