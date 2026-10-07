@@ -1,0 +1,10 @@
+# Vendored Go SDK (kept out of git; underscore prefix keeps ./... scans clean)
+_tools/
+
+# Coverage / temp artifacts
+*.out
+*.test
+
+# OS noise
+Thumbs.db
+Desktop.ini
