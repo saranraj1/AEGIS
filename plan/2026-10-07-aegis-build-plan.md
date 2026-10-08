@@ -231,6 +231,35 @@ Verification gate: `httptest.Server` round-trip tests plus provider timeout/retr
 tests with zero network in the default suite.
 
 ### Phase 3 — The four stages, each as a pure function over Provider — ~3 days
+STATUS: COMPLETE 2026-10-08. Four stage packages + two support packages green; full
+gate (build/vet/gofmt/test) exit 0, zero network (all tests via testprov stubs and
+provider.Fake transcripts). Deliverables:
+- `internal/stagejson` — the shared "repair this JSON" rule: one stage call, on
+  JSON-shape failure exactly one repair call carrying the invalid response, then a
+  hard error. Provider errors (timeout/4xx/exhaustion) pass through untouched.
+- `internal/testprov` — sequential scripted provider for tests (records requests,
+  supports content + error scripts); used by every stage test.
+- `internal/claims` — deterministic sentence/bullet seed split; decode [{text,stance}];
+  invented-claim drop via normalized-substring rule (warnings count drops); duplicate
+  merge keyed on normalized text keeping asserted over hedged; ids c0..cN in
+  extraction order; unknown stance coerced to asserted with warning; repair path wired.
+- `internal/ground` — batches of 25 (D5); lenient live decode of
+  [{claim_id,grounding,quote}] (unknown grounding value → repair path; missing quote
+  is NOT an error — it flows to invalid-evidence); A11 order binding for records
+  without claim_id; quote verified as exact substring over FULL files (line number
+  computed); 40-line/stride-20 sliding windows ranked by token overlap, selected
+  within an 8k whitespace-token budget, rendered in document order; per-batch ctx
+  timeout marks only that batch ungrounded/timeout and later batches continue.
+- `internal/reason` — id regex ^[A-Za-z][A-Za-z0-9_-]{0,31}$; duplicate ids and empty
+  text dropped; depends_on limited to claim ids or EARLIER kept step ids (forward
+  refs and cascades dropped with warnings); empty list valid; nil depends_on
+  normalized to [] for clean JSON.
+- `internal/critique` — forced-refute system prompt; verdict must be
+  agree|disagree|mixed (foreign values take the repair path, then hard fail);
+  disputed_claim_ids filtered to known claim ids with warnings.
+Note: live grounding decode is deliberately more lenient than provider.DecodeGround
+(fixtures fail fast on missing quotes; live responses route them throughinvalid-evidence instead) — both behaviors are pinned by tests.
+
 - `internal/claims` — extraction prompt builder + response decode + drop-invented-claims
   (normalized substring check) + forced distinct merge (asserted > hedged).
 - `internal/ground` — batched grounding with token-overlap window ranking (spec's 8k cap,
