@@ -274,6 +274,39 @@ the spec's named edge cases: claim drop of invented text, quote rejection, unkno
 drop, merge of duplicate claims.
 
 ### Phase 4 — Code checkers + engine orchestration — ~2 days
+STATUS: COMPLETE 2026-10-08. Full gate (build/vet/gofmt/test) exit 0; assert coverage
+re-verified at 100.0% after its fix. Deliverables:
+- `internal/assert` AMENDED — code.parse failures now emit UNCONDITIONALLY (spec:
+  "Parse failure appends failed assertion code.parse"); the assertions.code.parse flag
+  only forces the checker when nothing was auto-detected. Phase 1's Input lost the
+  CodeParse field (no existing test pinned the gated behavior; new subtest pins the
+  spec rule).
+- `internal/cache` (key half) — SHA-256 of `v1\0prompt\0output\0normalized_spec\0`;
+  normalized_spec is canonical JSON (map-keyed, sorted) with inline, sorted
+  path+base64-bytes file entries, assertions object, critique_model. Table tests pin
+  the spec exclusions (id, model.wrap NOT in hash) and inclusions (assertion change,
+  file rename/bytes, inline, critique_model; file ORDER ignored). Store/gc = Phase 5.
+- `internal/ground` — Options.CallTimeout added: each batched call gets its own
+  --stage-timeout so one slow batch cannot starve the rest (D5 semantics).
+- `internal/codechk` — fenced blocks (go/golang/py/python named; empty-language
+  auto-detects; other languages ignored) plus 3+ consecutive non-blank line runs that
+  parse (a run that fails to parse is not code — no check, no failure). Go parsed
+  in-process via go/parser with package- and function-wrapper attempts; Python via
+  `python3 -c "import ast..."` subprocess (5s timeout, detail capped 200 chars).
+  Missing-python rule: forced mode → failing check (code.parse assertion);
+  auto-detect mode → warning only. Unterminated fence handled.
+- `internal/engine` — full orchestration: context resolution (missing file = exit-2
+  error naming the path; inline as `<inline>`), output freeze vs wrap (model.wrap
+  ignores provided output; empty wrap = exit-2 error), claims → ground → reason →
+  critique ordering with per-call stage timeouts, ground timeouts marked ungrounded
+  (never exit 2), code checks, assert evaluation, report assembly (OK, exit_reason
+  ok|assertions_failed, warnings aggregation, cache key computed with Hit=false).
+  Whole-run deadline (120s default) classified as kind run-timeout; stage timeouts on
+  non-ground stages surface as provider-timeout (exit 2). Integration tests use fake
+  fixtures and scripted stubs; zero network.
+Note: a test-only go quirk worth remembering — Go raw strings cannot contain
+backticks, so fence-bearing test jobs are built with double-quoted strings.
+
 - `internal/codechk` — fenced code + 3-line heuristic detection, Go `go/parser`, Python
   `python3 -c` ast subprocess (handle the missing-python3 rule: record warning, or
   failure if `code.parse` is explicitly required in assertions).

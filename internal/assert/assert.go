@@ -37,13 +37,16 @@ type CodeCheck struct {
 type Result = report.FailedAssertion
 
 // Input bundles the job's assertions with the stage outputs to evaluate.
+// CodeParse is not part of the input: per spec, a failing parse check
+// always appends a code.parse failed assertion — the assertions.code.parse
+// flag only controls whether the checker runs when nothing was
+// auto-detected (an engine concern, not an evaluation concern).
 type Input struct {
 	MustClaim         []string
 	MustNotClaim      []string
 	Grounded          bool
 	MaxUngrounded     *int
 	CritiqueMustAgree bool
-	CodeParse         bool
 
 	Claims     []Claim
 	Critique   *Critique
@@ -156,19 +159,19 @@ func Evaluate(in Input) []Result {
 		}
 	}
 
-	// code.parse: parse-kind checks that failed.
-	if in.CodeParse {
-		for _, cc := range in.CodeChecks {
-			if cc.Kind != "parse" || cc.OK {
-				continue
-			}
-			out = append(out, Result{
-				Type:     report.ATCodeParse,
-				Expected: "parses",
-				Actual:   cc.Language + ": " + cc.Detail,
-				Detail:   fmt.Sprintf("code check failed for %s: %s", cc.Language, cc.Detail),
-			})
+	// code.parse: parse-kind checks that failed. Spec: "Parse failure
+	// appends failed assertion code.parse" — unconditional once a check
+	// exists.
+	for _, cc := range in.CodeChecks {
+		if cc.Kind != "parse" || cc.OK {
+			continue
 		}
+		out = append(out, Result{
+			Type:     report.ATCodeParse,
+			Expected: "parses",
+			Actual:   cc.Language + ": " + cc.Detail,
+			Detail:   fmt.Sprintf("code check failed for %s: %s", cc.Language, cc.Detail),
+		})
 	}
 
 	return out

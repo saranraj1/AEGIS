@@ -251,16 +251,17 @@ func TestEvaluateCritique(t *testing.T) {
 func TestEvaluateCodeParse(t *testing.T) {
 	t.Run("ok checks pass", func(t *testing.T) {
 		got := Evaluate(Input{
-			CodeParse:  true,
 			CodeChecks: []CodeCheck{{Kind: "parse", Language: "go", OK: true}, {Kind: "parse", Language: "python", OK: true}},
 		})
 		if len(got) != 0 {
 			t.Fatalf("want pass, got %v", got)
 		}
 	})
-	t.Run("failing check emits entry", func(t *testing.T) {
+	t.Run("failing check emits entry even without the flag", func(t *testing.T) {
+		// Spec: "Parse failure appends failed assertion code.parse" — the
+		// assertions.code.parse flag only forces the checker to run when
+		// nothing was auto-detected; it does not gate emission.
 		got := Evaluate(Input{
-			CodeParse:  true,
 			CodeChecks: []CodeCheck{{Kind: "parse", Language: "go", OK: false, Detail: "unexpected }"}},
 		})
 		if len(got) != 1 || got[0].Type != report.ATCodeParse {
@@ -274,7 +275,6 @@ func TestEvaluateCodeParse(t *testing.T) {
 		// Pinned contract: only parse-kind failures counted (v1 has no other
 		// kinds, this guards future drift).
 		got := Evaluate(Input{
-			CodeParse:  true,
 			CodeChecks: []CodeCheck{{Kind: "lint", Language: "go", OK: false, Detail: "d"}},
 		})
 		if len(got) != 0 {
@@ -284,7 +284,7 @@ func TestEvaluateCodeParse(t *testing.T) {
 	t.Run("no checks and flag set passes", func(t *testing.T) {
 		// Spec: parse=true with no detected code runs the checker over zero
 		// snippets — pass, no failure emitted.
-		if got := Evaluate(Input{CodeParse: true}); len(got) != 0 {
+		if got := Evaluate(Input{}); len(got) != 0 {
 			t.Fatalf("zero snippets must pass, got %v", got)
 		}
 	})
@@ -297,7 +297,6 @@ func TestEvaluateOrderingDeterministic(t *testing.T) {
 		Grounded:          true,
 		MaxUngrounded:     intPtr(0),
 		CritiqueMustAgree: true,
-		CodeParse:         true,
 		Claims: []Claim{
 			claim("c0", "key is sha256", report.StanceAsserted, report.Contradicted),
 			claim("c1", "the cache is stored in git", report.StanceAsserted, report.Grounded),

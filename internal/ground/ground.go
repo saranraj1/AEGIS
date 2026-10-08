@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/aegis-verify/aegis/internal/matching"
 	"github.com/aegis-verify/aegis/internal/provider"
@@ -51,6 +52,10 @@ type Options struct {
 	TokenBudget int
 	WindowSize  int
 	Stride      int
+	// CallTimeout bounds each batched LLM call individually (the spec's
+	// --stage-timeout applies per batched call, so one slow batch does not
+	// starve the rest). Zero means no per-call deadline; the engine sets it.
+	CallTimeout time.Duration
 }
 
 func (o Options) withDefaults() Options {
@@ -153,6 +158,12 @@ func Run(ctx context.Context, prov provider.Provider, jobID string, claims []rep
 // runBatch performs one grounding call and binds its records to the batch.
 func runBatch(ctx context.Context, prov provider.Provider, jobID string, batch []report.Claim, files []ContextFile, opts Options) ([]string, error) {
 	var warnings []string
+	callCtx := ctx
+	if opts.CallTimeout > 0 {
+		var cancel context.CancelFunc
+		callCtx, cancel = context.WithTimeout(ctx, opts.CallTimeout)
+		defer cancel()
+	}
 	req := provider.Request{
 		Stage:  provider.StageGround,
 		System: SystemPrompt(),
@@ -160,7 +171,7 @@ func runBatch(ctx context.Context, prov provider.Provider, jobID string, batch [
 		JobID:  jobID,
 	}
 	var records []rawGround
-	_, callWarns, err := stagejson.Call(ctx, prov, req, func(content string) error {
+	_, callWarns, err := stagejson.Call(callCtx, prov, req, func(content string) error {
 		records = nil
 		if err := json.Unmarshal([]byte(content), &records); err != nil {
 			return err
