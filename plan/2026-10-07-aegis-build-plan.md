@@ -201,6 +201,26 @@ Deliverables:
 Verification gate: pure packages, table tests, goldens. No mocks yet — they cannot fail.
 
 ### Phase 2 — Provider interface + fake provider — ~1–2 days
+STATUS: COMPLETE 2026-10-08. `internal/provider` green: 24 passing tests, all via
+httptest.Server on loopback (zero external network). Full gate: go build/vet/gofmt/
+test all exit 0 (`-race` unavailable: vendored toolchain's gcc is 32-bit, no cgo —
+environment limitation, not a code defect). Deliverables:
+- `provider.go` — Stage enum (wrap|claims|ground|reason|critique), Request/Response,
+  structured `*Error` with Kind values matching the D2 stderr convention, `FromEnv`
+  naming every missing USER_LLM_* var (never its value), `Provider` interface.
+- `openai.go` — OpenAI-compatible client, raw net/http only: POST {base}/chat/completions,
+  system+user messages, temperature 0, `response_format: json_object` default-on;
+  any non-429 4xx triggers one full retry mode without the field + warning (C6),
+  a second 4xx hard-fails. 429/5xx retried with exponential backoff (250ms doubling,
+  4s cap), max 3 attempts per mode, then KindProviderTransient. ctx deadline →
+  KindTimeout (never retried). API key scrubbed from all error details. 2xx with
+  no/bad choices → KindBadResponse; empty content passes through (stage-level check).
+- `fake.go` — FakeProvider serving `{job-id}.{stage}.json` verbatim from --fake-dir,
+  never reads USER_LLM_*; missing fixture → KindFakeMissing; `DecodeGround` validates
+  the ground fixture array (strict unknown-field rejection, report vocabulary, quote
+  required for supported/contradicted, claim_id optional per A11 order binding).
+Note: test fixture counts expect 2 requests for any 4xx (one per response_format
+mode); the transient 3-attempt budget applies within each mode.
 - `internal/provider` (interface, OpenAI-compatible HTTP client, retry/timeout, env
   resolution that names the missing `USER_LLM_*` var), in-process `FakeProvider` that
   loads canned JSON fixtures.
