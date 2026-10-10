@@ -8,3 +8,6 @@ _tools/
 # OS noise
 Thumbs.db
 Desktop.ini
+
+# aegis default cache dir (engine defaults write here)
+.aegis/

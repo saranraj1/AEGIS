@@ -1,7 +1,6 @@
 // Package engine orchestrates the audit pipeline: load, wrap (output
 // freeze), claims, ground, reason, critique, code checks, and assertion
-// evaluation. Cache get/put wiring arrives in a later phase; every run
-// computes its cache key now.
+// evaluation, plus the replay cache get/put.
 //
 // Exit-code discipline (CLI maps these): nil error + report.OK → 0,
 // nil error + !report.OK → 1, error → 2. Grounding timeouts are NOT engine
@@ -36,10 +35,29 @@ const (
 	InlinePath = "<inline>"
 )
 
+// CacheMode selects the replay-cache behavior (spec flags: --cache
+// default true, --no-cache, --cache-only, --record).
+type CacheMode int
+
+const (
+	// CacheDefault reads and writes the cache (flags --cache, --record).
+	CacheDefault CacheMode = iota
+	// CacheOff neither reads nor writes (--no-cache).
+	CacheOff
+	// CacheOnly reads only; a missing key is a hard error and NO
+	// provider calls are made (--cache-only).
+	CacheOnly
+)
+
+// DefaultCacheDir is the CLI's --cache-dir default.
+const DefaultCacheDir = ".aegis/cache"
+
 // Options tunes one run.
 type Options struct {
 	RunTimeout   time.Duration // whole-run deadline, default 120s
 	StageTimeout time.Duration // per LLM call, default 45s
+	Cache        CacheMode     // default CacheDefault (read + write)
+	CacheDir     string        // store dir, default DefaultCacheDir
 }
 
 // Error is an engine-level hard failure (exit 2). Kind values follow the
@@ -57,6 +75,8 @@ const (
 	KindContextUnreadable = "context-file-unreadable"
 	KindWrapEmpty         = "empty-wrap-output"
 	KindRunTimeout        = "run-timeout"
+	KindCacheMiss         = "cache-miss"
+	KindCacheStore        = "cache-store-error"
 )
 
 // WrapSystemPrompt is the fixed system message for the wrap call.
@@ -71,6 +91,11 @@ func Run(ctx context.Context, j *job.Job, prov provider.Provider, opts Options) 
 	if opts.StageTimeout <= 0 {
 		opts.StageTimeout = DefaultStageTimeout
 	}
+	if opts.CacheDir == "" {
+		opts.CacheDir = DefaultCacheDir
+	}
+	store := cache.NewStore(opts.CacheDir)
+
 	runCtx, cancelRun := context.WithTimeout(ctx, opts.RunTimeout)
 	defer cancelRun()
 
@@ -84,18 +109,49 @@ func Run(ctx context.Context, j *job.Job, prov provider.Provider, opts Options) 
 		Warnings:         []string{},
 	}
 
-	// Stage 1: resolve context.
+	// Stage 1: resolve context; the context is part of the cache key.
 	files, ctxWarns, err := resolveContext(j)
 	if err != nil {
 		return nil, err
 	}
 	rep.Warnings = append(rep.Warnings, ctxWarns...)
 
-	// Stage 1 continued: output freeze or wrap.
+	// Provisional key material: the output freezes before hashing.
 	output := ""
 	if j.Output != nil && !j.Model.Wrap {
 		output = *j.Output
-	} else {
+	}
+	key := cacheKey(j, output, files)
+
+	// Cache lookup (default and cache-only modes). On a hit the stored
+	// report is returned as-is — including its original failed_assertions
+	// and ok — with only cache.hit set to distinguish the replay.
+	if opts.Cache != CacheOff {
+		stored, _, err := store.Get(key)
+		switch {
+		case err == nil:
+			stored.Cache = report.CacheInfo{Hit: true, Key: key}
+			return stored, nil
+		case errors.Is(err, os.ErrNotExist):
+			if opts.Cache == CacheOnly {
+				return nil, &Error{Kind: KindCacheMiss, Msg: fmt.Sprintf("no cached report for key %s (cache-only mode makes no provider calls)", key)}
+			}
+		default:
+			// Corrupt or unreadable: in cache-only mode that is fatal;
+			// otherwise fall through to a live run (the provider is still
+			// the source of truth, a bad entry must not block it).
+			if opts.Cache == CacheOnly {
+				return nil, &Error{Kind: KindCacheStore, Msg: err.Error()}
+			}
+			rep.Warnings = append(rep.Warnings, "cache entry unreadable, proceeding live: "+err.Error())
+		}
+	}
+
+	// Output freeze or wrap: with a provided output this is already
+	// resolved above; otherwise the wrap call happens now.
+	wrapUsed := false
+	if j.Output == nil || j.Model.Wrap {
+		wrapUsed = true
 		callCtx, cancelCall := context.WithTimeout(runCtx, opts.StageTimeout)
 		resp, err := prov.Call(callCtx, provider.Request{
 			Stage:  provider.StageWrap,
@@ -115,8 +171,12 @@ func Run(ctx context.Context, j *job.Job, prov provider.Provider, opts Options) 
 	}
 	rep.Output = output
 
-	// Cache key (store lookup/put is a later phase).
-	rep.Cache = report.CacheInfo{Hit: false, Key: cacheKey(j, output, files)}
+	// With wrap, the output exists only after the wrap call, so the
+	// final key is computed there (a provided output already has it).
+	if wrapUsed {
+		key = cacheKey(j, output, files)
+	}
+	rep.Cache = report.CacheInfo{Hit: false, Key: key}
 
 	// Stage 3: claims.
 	{
@@ -208,6 +268,14 @@ func Run(ctx context.Context, j *job.Job, prov provider.Provider, opts Options) 
 
 	if runCtx.Err() != nil {
 		return nil, &Error{Kind: KindRunTimeout, Msg: "whole-run timeout exceeded: " + runCtx.Err().Error()}
+	}
+
+	// Cache put (default mode only). A failed write is a warning, not
+	// an audit failure: the report is valid even if replay later misses.
+	if opts.Cache == CacheDefault {
+		if err := store.Put(key, rep); err != nil {
+			rep.Warnings = append(rep.Warnings, "cache write failed: "+err.Error())
+		}
 	}
 	return rep, nil
 }

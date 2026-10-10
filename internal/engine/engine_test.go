@@ -64,7 +64,7 @@ func TestRunHappyPathFake(t *testing.T) {
 	fullFixtures(t, dir, "explain-cache-key")
 	j := loadJob(t, fullJobYAML)
 
-	rep, err := Run(context.Background(), j, provider.NewFake(dir), Options{})
+	rep, err := Run(context.Background(), j, provider.NewFake(dir), Options{Cache: CacheOff})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -102,7 +102,7 @@ assertions:
   must_claim:
     - cache is stored in git
 `)
-	rep, err := Run(context.Background(), j, provider.NewFake(dir), Options{})
+	rep, err := Run(context.Background(), j, provider.NewFake(dir), Options{Cache: CacheOff})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -126,7 +126,7 @@ func TestRunWrapWhenOutputMissing(t *testing.T) {
 id: j1
 prompt: How does aegis hash a cache key?
 `)
-	rep, err := Run(context.Background(), j, seq, Options{})
+	rep, err := Run(context.Background(), j, seq, Options{Cache: CacheOff})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -167,7 +167,7 @@ output: provided answer
 model:
   wrap: true
 `)
-	rep, err := Run(context.Background(), j, seq, Options{})
+	rep, err := Run(context.Background(), j, seq, Options{Cache: CacheOff})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -179,7 +179,7 @@ model:
 func TestRunWrapEmptyIsEngineError(t *testing.T) {
 	seq := testprov.NewSeq("   ")
 	j := loadJob(t, "id: j1\nprompt: p\n")
-	_, err := Run(context.Background(), j, seq, Options{})
+	_, err := Run(context.Background(), j, seq, Options{Cache: CacheOff})
 	var eerr *Error
 	if !errors.As(err, &eerr) || eerr.Kind != KindWrapEmpty {
 		t.Fatalf("got %v, want kind %s", err, KindWrapEmpty)
@@ -195,7 +195,7 @@ context:
   files:
     - nope/missing.go
 `)
-	_, err := Run(context.Background(), j, testprov.NewSeq(), Options{})
+	_, err := Run(context.Background(), j, testprov.NewSeq(), Options{Cache: CacheOff})
 	var eerr *Error
 	if !errors.As(err, &eerr) || eerr.Kind != KindContextMissing {
 		t.Fatalf("got %v, want kind %s", err, KindContextMissing)
@@ -242,7 +242,7 @@ func TestRunCodeParseFailureAppendsAssertion(t *testing.T) {
 	dir := t.TempDir()
 	fullFixtures(t, dir, "j1")
 	j := loadJob(t, "{\"id\":\"j1\",\"prompt\":\"p\",\"output\":\"text before\\n```go\\nfunc broken( {\\n```\\ntext after\"}")
-	rep, err := Run(context.Background(), j, provider.NewFake(dir), Options{})
+	rep, err := Run(context.Background(), j, provider.NewFake(dir), Options{Cache: CacheOff})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -271,7 +271,7 @@ assertions:
   code:
     parse: true
 `)
-	rep, err := Run(context.Background(), j, provider.NewFake(dir), Options{})
+	rep, err := Run(context.Background(), j, provider.NewFake(dir), Options{Cache: CacheOff})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestRunInventedClaimWarning(t *testing.T) {
 	writeFake(t, dir, "explain-cache-key", "claims",
 		`[{"text":"The cache key is sha256 of prompt, output, and spec.","stance":"asserted"},{"text":"totally invented text here","stance":"asserted"}]`)
 	j := loadJob(t, fullJobYAML)
-	rep, err := Run(context.Background(), j, provider.NewFake(dir), Options{})
+	rep, err := Run(context.Background(), j, provider.NewFake(dir), Options{Cache: CacheOff})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -346,7 +346,7 @@ context:
 assertions:
   grounded: true
 `)
-	rep, err := Run(context.Background(), j, provider.NewFake(dir), Options{})
+	rep, err := Run(context.Background(), j, provider.NewFake(dir), Options{Cache: CacheOff})
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

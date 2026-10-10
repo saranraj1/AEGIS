@@ -329,6 +329,37 @@ reports.
 Verification gate: cache-key table tests incl. the spec's exact exclusions (`id`,
 `model.wrap` not in hash; context rename is).
 
+STATUS: COMPLETE 2026-10-10. `internal/cache` store half green: `Store` (one
+`<key>.json` per entry, report fields plus `cached_at` RFC3339, atomic write
+temp+rename), `Get` (bad JSON / bad cached_at surfaces as entry error, missing
+as os.ErrNotExist, invalid keys rejected both directions), `GC(olderThan)`
+deletes by cached_at, ignores stray files/subdirs, no-op on absent dir;
+12 store tests. `internal/engine` wired: `CacheMode` enum (CacheDefault
+read+write = --cache/--record, CacheOff = --no-cache, CacheOnly = read-only
+zero provider calls on miss + hit; miss = exit-2 kind `cache-miss`, corrupt
+entry in cache-only = kind `cache-store-error`, corrupt entry in default
+mode = warning + live fallback), `CacheDir` (default `.aegis/cache`, now
+gitignored), lookup after context resolution but before wrap (wrap-mode key
+takes the final output), hit returns the stored report as-is with only
+cache.hit flipped (JSON-payload fidelity pinned by round-trip test), put
+failure = warning not audit failure; assertions-in-key rule pinned by test
+(tighter must_claim misses vs cache-only). Full gate exit 0, 13 ok packages;
+coverage: cache 87.6%, engine 92.7%, assert 100.0%.
+
+Cross-verification of previously reported limitations (2026-10-10):
+- `go test -race` STILL UNBUILDABLE: vendored Go 1.22.5's bundled gcc is
+  32-bit (`cc1.exe: sorry, unimplemented: 64-bit mode not compiled in`),
+  no cgo. Unchanged from Phase 4's report; not blocking the normal-test
+  gate. (Re-tried this phase per request — fixing it needs a MinGW-w64
+  64-bit toolchain, out of the vendored-toolchain scope.)
+- python3 skips RESOLVED: python3 (3.11.9, WindowsApps shim) is now on
+  PATH, and `internal/codechk` subprocess tests run for real — 14 tests,
+  -count=1, zero SKIP lines (`TestAutoDetectAcrossRuntimes` compares real
+  CPython against the shim). The Phase 4 "missing-python" skip limitation
+  no longer applies on this machine.
+- Top-level-only note: the full-gate gofmt check now sweeps `internal/`
+  (there is no cmd/ tree yet; Phase 7 introduces it).
+
 ### Phase 6 — Python library + pytest plugin — ~1–2 days
 - Subprocess-only: no HTTP imports; `AEGIS_BINARY` env override; `binary="aegis"` kwarg.
 - `verify()` raising assertion failures with failed_assertions inlined.
