@@ -1,0 +1,78 @@
+# Aegis CI (phase 7): go test/vet/build, the committed fake-provider
+# golden e2e, and Python pytest when a python/ tree exists. Zero network:
+# every aegis invocation in CI uses --fake-provider with committed
+# fixtures, and the Go test suite injects the in-process fake provider.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: gofmt (project paths only; _tools is vendored toolchain)
+        run: |
+          out=$(gofmt -l cmd internal 2>/dev/null)
+          if [ -n "$out" ]; then
+            echo "::error::gofmt needed on:"
+            echo "$out"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test (full suite, no network)
+        run: go test -count=1 ./...
+
+      - name: build
+        run: go build ./...
+
+      # Phase 7 gate: the committed golden run must stay diff-clean.
+      # TestRunGoldenE2E replays the spec example job through the real
+      # CLI with --fake-provider against testdata/fixtures and compares
+      # stdout to testdata/reports/explain-cache-key.golden.json.
+      - name: golden e2e (fake provider, diff-clean)
+        run: go test -count=1 -v -run TestRunGoldenE2E ./cmd/aegis/
+
+      # A deliberate report/pipeline change refreshes the golden on its
+      # own commit; this check fails CI if the regeneration no longer
+      # matches, which catches accidental drift.
+      - name: golden regeneration stability
+        run: |
+          cp testdata/reports/explain-cache-key.golden.json /tmp/golden.bak
+          AEGIS_REGEN_GOLDEN=1 go test -count=1 -run TestRunGoldenRegen ./cmd/aegis/
+          diff /tmp/golden.bak testdata/reports/explain-cache-key.golden.json
+
+  python:
+    # Phase 6 (python/aegis/ library + pytest plugin) is not in this
+    # tree yet. The job self-skips today and starts enforcing the moment
+    # that tree lands, so CI never needs editing again.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: pytest (skips with a notice while python/ does not exist)
+        run: |
+          if [ -d python ]; then
+            pip install -e "python[pytest]" pytest ruff
+            ruff check python
+            pytest -q python
+          else
+            echo "python/ tree absent — phase 6 not merged yet; skipping"
+          fi
+      - name: import hygiene (no HTTP clients in the lib)
+        if: hashFiles('python/**/*.py') != ''
+        run: pytest -q python -k hygiene

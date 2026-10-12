@@ -1,0 +1,1 @@
+[{"claim_id":"c0","grounding":"supported","quote":"cache key = sha256(prompt + output + spec)"}]

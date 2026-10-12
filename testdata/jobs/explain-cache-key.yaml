@@ -1,0 +1,23 @@
+# Spec's own example job (design doc, "Job spec" section), used as the
+# committed golden e2e run with --fake-provider.
+id: explain-cache-key
+prompt: |
+  How does aegis hash a cache key?
+output: |
+  The cache key is sha256 of prompt, output, and spec.
+context:
+  inline: |
+    cache key = sha256(prompt + output + spec)
+assertions:
+  must_claim:
+    - cache key is sha256 of prompt, output, and spec
+  must_not_claim:
+    - cache is stored in git
+  grounded: true
+  max_ungrounded: 0
+  critique_must_agree: false
+  code:
+    parse: false
+model:
+  wrap: false
+  critique_model: null
