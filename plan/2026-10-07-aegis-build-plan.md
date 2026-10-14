@@ -425,5 +425,26 @@ goes in `testdata/manual-smoke/` (not CI).
   a batch timeout marks only that batch `ungrounded` + `timeout`, other batches
   proceed normally. Spec's "one batched call" is read as "batched calls".
 
+## 8. Completion record (2026-10-14)
+
+All seven phases are implemented and committed. Full verification matrix run
+locally on 2026-10-14 with the vendored toolchain (`_tools/go`, go1.22.5),
+mirroring the CI `go` job:
+
+- `gofmt -l cmd internal` clean; `go vet ./...` clean; `go build ./...` OK.
+- `go test -count=1 ./...` — 14/14 packages pass; no skips on this machine
+  (real CPython present for codechk subprocess tests).
+- Golden gates: `TestRunGoldenE2E` diff-clean, and the regen-stability check
+  (`AEGIS_REGEN_GOLDEN=1` regenerates byte-identical golden).
+- `internal/assert` coverage: **100.0% of statements** (§5 target met).
+- Python side: `pytest` (20 tests: shim, hygiene, Go-golden schema contract,
+  stub example) + `ruff` clean — the risk-#1 “one Go snapshot, two consumers”
+  mitigation is implemented in `python/tests/test_schema_contract.py`.
+
+Open gate: the phase-7 opt-in live smoke (`USER_LLM_*` against a real
+endpoint, transcript to `testdata/manual-smoke/`, not CI) is **blocked in this
+environment — no `USER_LLM_*` key is present**. It remains the single
+unexecuted gate and must run once manually before any v1 tag.
+
 Original D1–D5 question text is preserved in the session record; the resolved
 rulings above are the operative contract for implementation.
