@@ -1,7 +1,8 @@
 # Aegis CI (phase 7): go test/vet/build, the committed fake-provider
-# golden e2e, and Python pytest when a python/ tree exists. Zero network:
-# every aegis invocation in CI uses --fake-provider with committed
-# fixtures, and the Go test suite injects the in-process fake provider.
+# golden e2e, and the Python pytest suite + stub-binary example.
+# Zero network: every aegis invocation in CI uses --fake-provider with
+# committed fixtures or the example's stub binary; the Go test suite
+# injects the in-process fake provider.
 name: ci
 
 on:
@@ -55,24 +56,20 @@ jobs:
           diff /tmp/golden.bak testdata/reports/explain-cache-key.golden.json
 
   python:
-    # Phase 6 (python/aegis/ library + pytest plugin) is not in this
-    # tree yet. The job self-skips today and starts enforcing the moment
-    # that tree lands, so CI never needs editing again.
+    # Phase 6: python/aegis library + pytest plugin + stub-binary example.
+    # Zero network: the example runs against a fake stub binary, never
+    # a real model.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: pytest (skips with a notice while python/ does not exist)
-        run: |
-          if [ -d python ]; then
-            pip install -e "python[pytest]" pytest ruff
-            ruff check python
-            pytest -q python
-          else
-            echo "python/ tree absent — phase 6 not merged yet; skipping"
-          fi
+      - name: install (editable package with dev extras)
+        run: pip install -e "python[dev]"
+      - name: ruff (library, tests, example)
+        run: python -m ruff check python examples
+      - name: pytest (library tests + stub-binary example)
+        run: python -m pytest -q python examples/pytest-example
       - name: import hygiene (no HTTP clients in the lib)
-        if: hashFiles('python/**/*.py') != ''
-        run: pytest -q python -k hygiene
+        run: python -m pytest -q python -k hygiene

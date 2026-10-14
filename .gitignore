@@ -11,3 +11,9 @@ Desktop.ini
 
 # aegis default cache dir (engine defaults write here)
 .aegis/
+
+# python build artifacts
+__pycache__/
+aegis_verify.egg-info/
+.pytest_cache/
+.ruff_cache/
