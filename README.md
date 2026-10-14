@@ -114,6 +114,52 @@ JSON report (stdout by default, or `-o PATH`):
 `exit_reason`: `ok` | `assertions_failed` | `engine_error`.
 `--junit PATH` writes a JUnit testsuite for CI.
 
+The Python shim (`python/aegis`) parses this exact JSON into typed
+dataclasses and is pinned to the committed Go golden report by a
+schema-contract test — one source of truth, two consumers.
+
+## Python: `aegis-verify` package and pytest plugin
+
+The Python shim never calls a model and imports no HTTP client: it
+writes a job file, runs the binary (`aegis` on `PATH`, or `AEGIS_BINARY`),
+parses the report, and raises on failure with the claims inlined.
+
+```bash
+pip install -e "python[dev]"     # takes pytest + ruff
+```
+
+```python
+import aegis
+
+def test_cache_key_explanation():
+    r = aegis.verify(
+        prompt="How does aegis hash a cache key?",
+        output=model_text,
+        context_files=["internal/cache/key.go"],
+        must_claim=["cache key is sha256 of prompt, output, and spec"],
+        grounded=True,
+        # raise_on_fail=True,  # assert failures inline claims for you
+    )
+    assert r.ok
+```
+
+With the plugin (`pytest11` entry point `aegis`), `verify(id=None)`
+defaults the job id to the running test's node id and plain
+`assert r.ok` failures get a hint pointing at `raise_on_fail`. Without
+the plugin everything still works — the plugin only adds polish.
+
+Work offline or in CI with zero model access either by replaying the
+recorded cache (`cache_only=True`, mirroring the Go `--offline`) or by
+pointing `AEGIS_BINARY` at a stub. `examples/pytest-example` does
+exactly that and is run green by CI:
+
+```bash
+pytest examples/pytest-example -q
+```
+
+Exit-2 paths of the binary print `error: <kind>: <message>` on stderr;
+`verify()` matches that prefix and raises `AegisEngineError(kind, ...)`.
+
 ## The replay cache and CI
 
 Cache key = SHA-256 of `prompt` + `output` + normalized spec
@@ -147,6 +193,8 @@ go test ./...
 go test -run TestRunGoldenE2E ./cmd/aegis/   # committed golden e2e
 AEGIS_REGEN_GOLDEN=1 go test -run TestRunGoldenRegen ./cmd/aegis/  # refresh golden
 go build ./...
+python -m pytest -q python examples/pytest-example   # python shim + example
+python -m ruff check python examples
 ```
 
 Layout:
@@ -157,5 +205,8 @@ internal/...         engine stages (claims, ground, reason, critique, codechk, a
 testdata/jobs       committed example jobs
 testdata/fixtures   fake-provider stage fixtures for those jobs
 testdata/reports    committed golden reports (regen harness included)
+python/aegis        Python shim: verify(), Report dataclasses, pytest plugin
+python/tests        stub-binary tests, import hygiene, Go-golden schema contract
+examples/pytest-example   zero-model stub-binary pytest loop, run in CI
 docs/superpowers/specs/   the full design document
 ```
