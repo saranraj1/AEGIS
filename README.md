@@ -114,6 +114,19 @@ JSON report (stdout by default, or `-o PATH`):
 `exit_reason`: `ok` | `assertions_failed` | `engine_error`.
 `--junit PATH` writes a JUnit testsuite for CI.
 
+### Exit-2 stdout (A1 contract)
+
+On exit 2 the stderr line is kind-first (`error: <kind>: <message>`).
+Stdout splits by failure class: when the job parsed and the failure
+happened *inside* the pipeline (cache lookup/miss, wrap, or any stage
+call — a `provider-bad-response`, `cache-miss`, `run-timeout`, ...), a
+best-effort **one-line** JSON with `"ok": false,
+"exit_reason": "engine_error"` is printed to stdout so tooling can
+identify the job. Load-stage hard failures (bad YAML, unknown fields,
+missing context file) leave stdout empty and unparseable. Note that a
+report written with `-o`/`--output` still applies only to exit 0/1
+runs; the engine-error line always goes to stdout.
+
 The Python shim (`python/aegis`) parses this exact JSON into typed
 dataclasses and is pinned to the committed Go golden report by a
 schema-contract test — one source of truth, two consumers.

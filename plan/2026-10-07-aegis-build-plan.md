@@ -469,5 +469,28 @@ clean). Timeout/4xx and 5xx failure fixtures remain live-phase only (the
 fake provider cannot simulate transport failures); their code paths are
 already covered by provider and ground unit tests.
 
+Addendum 2 (2026-10-15) — Phase 8, A1/A14 exit-2 stdout contract shipped.
+All seven planned phases were complete; this closed the last frozen-
+assumption gap found in the code: the report vocabulary contained
+`exit_reason: "engine_error"` (pinned by the Python schema-contract test)
+but the Go binary never wrote anything to stdout on exit 2.
+
+- `internal/engine.Run` now classifies failures: RESOLVED-class errors
+  (after context resolution — cache-only miss/store error, wrap errors,
+  any stage-call failure, run timeout) return the partial report next to
+  the error; LOAD-class errors (missing/unreadable context file) return
+  nil. All other load failures (bad args, unreadable/invalid job)
+  already never reached the engine.
+- `cmd/aegis`: on an engine error with a partial report, stdout gets the
+  best-effort one-line JSON (copy of the report with `ok=false`,
+  `exit_reason="engine_error"`, replay cache info zeroed); load-stage
+  failures still leave stdout empty — both branches now pinned by tests
+  (committed badjson fixture replays: engine_error line + kind-first
+  stderr; cache-only miss: engine_error line; bad yaml: stdout empty).
+- README documents the split (`Exit-2 stdout (A1 contract)` section).
+- Re-verified: gofmt/vet clean, `go test -count=1 ./...` all packages,
+  golden diff-clean + regen byte-stable, gofmt-scoped build OK, Python
+  side unchanged (pytest 20, ruff clean).
+
 Original D1–D5 question text is preserved in the session record; the resolved
 rulings above are the operative contract for implementation.

@@ -127,9 +127,13 @@ func TestRunExit2Cases(t *testing.T) {
 
 	t.Run("bad yaml", func(t *testing.T) {
 		p := writeJobFile(t, dir, "bad.yaml", "id: [unclosed")
-		code, _, errOut := runCLI(t, "run", p, "--fake-provider", "--fake-dir", dir)
+		code, out, errOut := runCLI(t, "run", p, "--fake-provider", "--fake-dir", dir)
 		if code != 2 || !strings.Contains(errOut, "invalid-job") {
 			t.Fatalf("exit=%d err=%s", code, str(errOut))
+		}
+		// A1 load branch: a job that never parsed leaves stdout empty.
+		if strings.TrimSpace(out) != "" {
+			t.Fatalf("load-stage failure must leave stdout empty, got %.200s", str(out))
 		}
 	})
 
@@ -201,11 +205,20 @@ func TestRunCacheOnlyZeroCallsAndGC(t *testing.T) {
 		t.Fatalf("offline replay not a hit:\n%s", str(out2))
 	}
 
-	// cache-only miss is exit 2 and mentions the kind.
+	// cache-only miss is exit 2 and mentions the kind; A1 resolved-branch
+	// behavior: the partial engine_error JSON goes to stdout (job parsed).
 	missJob := writeJobFile(t, dir, "miss.yaml", "id: miss-job\nprompt: p\noutput: o\n")
-	code, _, errOut = runCLI(t, "run", missJob, "--cache-only", "--cache-dir", cdir)
+	var missOut string
+	code, missOut, errOut = runCLI(t, "run", missJob, "--cache-only", "--cache-dir", cdir)
 	if code != 2 || !strings.Contains(errOut, "cache-miss") {
 		t.Fatalf("miss exit=%d err=%s", code, str(errOut))
+	}
+	var missRep map[string]any
+	if err := json.Unmarshal([]byte(strings.TrimSpace(missOut)), &missRep); err != nil {
+		t.Fatalf("cache-miss stdout is not the engine_error JSON line: %v\n%.200s", err, str(missOut))
+	}
+	if missRep["id"] != "miss-job" || missRep["ok"] != false || missRep["exit_reason"] != "engine_error" {
+		t.Fatalf("cache-miss line malformed: %v", missRep)
 	}
 
 	// gc on the seeded dir with --older-than 0 rejected; fresh entries

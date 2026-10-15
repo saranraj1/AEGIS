@@ -129,6 +129,21 @@ func runCmd(args []string, stdout, stderr io.Writer) (int, error) {
 		CacheDir:     *cacheDir,
 	})
 	if err != nil {
+		// A1/A14 exit-2 stdout contract: when the job parsed and the
+		// failure is RESOLVED-class (inside the pipeline — cache, wrap,
+		// or any stage call), a best-effort one-line JSON with
+		// exit_reason "engine_error" goes to stdout for tooling. Load-
+		// stage failures (nil report: bad args, unreadable/invalid job,
+		// missing context file) leave stdout empty and unparseable.
+		if rep != nil {
+			re := *rep
+			re.OK = false
+			re.ExitReason = "engine_error"
+			re.Cache = report.CacheInfo{} // replay metadata is meaningless here
+			if b, merr := json.Marshal(re); merr == nil {
+				fmt.Fprintln(stdout, string(b))
+			}
+		}
 		return 2, &exitError{msg: err.Error()}
 	}
 

@@ -135,7 +135,7 @@ func TestRunFailureFixturesE2E(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid claims JSON is exit 2 without a report", func(t *testing.T) {
+	t.Run("invalid claims JSON is exit 2 with the engine_error stdout line", func(t *testing.T) {
 		jobPath := filepath.Join(root, "..", "..", "testdata",
 			"jobs", "explain-cache-key-badjson.yaml")
 		code, out, errOut := runCLI(t, "run", jobPath,
@@ -144,8 +144,14 @@ func TestRunFailureFixturesE2E(t *testing.T) {
 		if code != 2 {
 			t.Fatalf("exit=%d stderr=%s", code, str(errOut))
 		}
-		if strings.TrimSpace(out) != "" {
-			t.Fatalf("exit-2 must print no report, got %.200s", str(out))
+		// A1 contract: stage-level failure after job parse gets the
+		// best-effort one-line exit_reason=engine_error JSON on stdout.
+		var mini map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &mini); err != nil {
+			t.Fatalf("stdout is not the engine_error JSON line: %v\n%.200s", err, str(out))
+		}
+		if mini["id"] != "explain-cache-key-badjson" || mini["ok"] != false || mini["exit_reason"] != "engine_error" {
+			t.Fatalf("engine_error line malformed: %v", mini)
 		}
 		// D2 kind-first line: error: provider-bad-response: stage claims: ...
 		if !strings.HasPrefix(errOut, "error: provider-bad-response: ") {

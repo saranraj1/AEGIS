@@ -79,6 +79,12 @@ const (
 	KindCacheStore        = "cache-store-error"
 )
 
+// Error-failure classes for the A1/A14 stdout contract: RESOLVED failures
+// (after context resolution) return the partial report alongside the
+// error so the CLI can emit the best-effort one-line engine_error JSON;
+// LOAD failures (context resolution) return nil and the CLI leaves stdout
+// empty.
+
 // WrapSystemPrompt is the fixed system message for the wrap call.
 const WrapSystemPrompt = "You are a helpful assistant. Answer the user's prompt directly."
 
@@ -125,7 +131,9 @@ func Run(ctx context.Context, j *job.Job, prov provider.Provider, opts Options) 
 
 	// Cache lookup (default and cache-only modes). On a hit the stored
 	// report is returned as-is — including its original failed_assertions
-	// and ok — with only cache.hit set to distinguish the replay.
+	// and ok — with only cache.hit set to distinguish the replay. The miss
+	// and store-error paths below are RESOLVED-class errors: they carry
+	// the partial report for the exit-2 stdout line (A1/A14).
 	if opts.Cache != CacheOff {
 		stored, _, err := store.Get(key)
 		switch {
@@ -134,14 +142,14 @@ func Run(ctx context.Context, j *job.Job, prov provider.Provider, opts Options) 
 			return stored, nil
 		case errors.Is(err, os.ErrNotExist):
 			if opts.Cache == CacheOnly {
-				return nil, &Error{Kind: KindCacheMiss, Msg: fmt.Sprintf("no cached report for key %s (cache-only mode makes no provider calls)", key)}
+				return rep, &Error{Kind: KindCacheMiss, Msg: fmt.Sprintf("no cached report for key %s (cache-only mode makes no provider calls)", key)}
 			}
 		default:
 			// Corrupt or unreadable: in cache-only mode that is fatal;
 			// otherwise fall through to a live run (the provider is still
 			// the source of truth, a bad entry must not block it).
 			if opts.Cache == CacheOnly {
-				return nil, &Error{Kind: KindCacheStore, Msg: err.Error()}
+				return rep, &Error{Kind: KindCacheStore, Msg: err.Error()}
 			}
 			rep.Warnings = append(rep.Warnings, "cache entry unreadable, proceeding live: "+err.Error())
 		}
@@ -161,11 +169,11 @@ func Run(ctx context.Context, j *job.Job, prov provider.Provider, opts Options) 
 		})
 		cancelCall()
 		if err != nil {
-			return nil, stageErr(runCtx, err)
+			return rep, stageErr(runCtx, err) // wrap error is RESOLVED-class
 		}
 		rep.Warnings = append(rep.Warnings, resp.Warnings...)
 		if strings.TrimSpace(resp.Content) == "" {
-			return nil, &Error{Kind: KindWrapEmpty, Msg: fmt.Sprintf("wrap returned empty output for job %q", j.ID)}
+			return rep, &Error{Kind: KindWrapEmpty, Msg: fmt.Sprintf("wrap returned empty output for job %q", j.ID)}
 		}
 		output = resp.Content
 	}
@@ -184,7 +192,7 @@ func Run(ctx context.Context, j *job.Job, prov provider.Provider, opts Options) 
 		jobClaims, warns, err := claims.Extract(callCtx, prov, j.ID, output)
 		cancelCall()
 		if err != nil {
-			return nil, stageErr(runCtx, err)
+			return rep, stageErr(runCtx, err)
 		}
 		rep.Warnings = append(rep.Warnings, warns...)
 		rep.Claims = jobClaims
@@ -196,13 +204,13 @@ func Run(ctx context.Context, j *job.Job, prov provider.Provider, opts Options) 
 			CallTimeout: opts.StageTimeout,
 		})
 		if err != nil {
-			return nil, stageErr(runCtx, err)
+			return rep, stageErr(runCtx, err)
 		}
 		rep.Warnings = append(rep.Warnings, warns...)
 		rep.Claims = jobClaims
 	}
 	if runCtx.Err() != nil {
-		return nil, &Error{Kind: KindRunTimeout, Msg: "whole-run timeout exceeded: " + runCtx.Err().Error()}
+		return rep, &Error{Kind: KindRunTimeout, Msg: "whole-run timeout exceeded: " + runCtx.Err().Error()}
 	}
 
 	// Stage 5: reasoning.
@@ -211,7 +219,7 @@ func Run(ctx context.Context, j *job.Job, prov provider.Provider, opts Options) 
 		steps, warns, err := reason.Run(callCtx, prov, j.ID, rep.Claims)
 		cancelCall()
 		if err != nil {
-			return nil, stageErr(runCtx, err)
+			return rep, stageErr(runCtx, err)
 		}
 		rep.Warnings = append(rep.Warnings, warns...)
 		rep.Steps = steps
@@ -223,7 +231,7 @@ func Run(ctx context.Context, j *job.Job, prov provider.Provider, opts Options) 
 		crit, warns, err := critique.Run(callCtx, prov, j.ID, j.Prompt, rep.Output, rep.Claims, rep.Steps)
 		cancelCall()
 		if err != nil {
-			return nil, stageErr(runCtx, err)
+			return rep, stageErr(runCtx, err)
 		}
 		rep.Warnings = append(rep.Warnings, warns...)
 		rep.Critique = crit
@@ -267,7 +275,7 @@ func Run(ctx context.Context, j *job.Job, prov provider.Provider, opts Options) 
 	}
 
 	if runCtx.Err() != nil {
-		return nil, &Error{Kind: KindRunTimeout, Msg: "whole-run timeout exceeded: " + runCtx.Err().Error()}
+		return rep, &Error{Kind: KindRunTimeout, Msg: "whole-run timeout exceeded: " + runCtx.Err().Error()}
 	}
 
 	// Cache put (default mode only). A failed write is a warning, not
