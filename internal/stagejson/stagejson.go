@@ -6,7 +6,10 @@ package stagejson
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 
 	"github.com/aegis-verify/aegis/internal/provider"
 )
@@ -14,6 +17,34 @@ import (
 // ParseFunc validates raw assistant content. A nil return means the
 // content is acceptable; a non-nil error triggers the repair path.
 type ParseFunc func(content string) error
+
+// DecodeArray parses a stage response whose logical shape is an array of
+// records (claims, ground results, reasoning steps). Because
+// response_format json_object guarantees a JSON OBJECT at top level, the
+// canonical live shape is the wrapper {"<wrapperKey>": [...]}; a bare JSON
+// array is also accepted (fake fixtures and pre-json_object transcripts
+// use it). dst must point at a slice type matching the records. An object
+// without the wrapper key is an error (it triggers the repair path).
+func DecodeArray(content, wrapperKey string, dst any) error {
+	trimmed := strings.TrimSpace(content)
+	if !strings.HasPrefix(trimmed, "{") {
+		return json.Unmarshal([]byte(trimmed), dst)
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(trimmed), &top); err != nil {
+		return err
+	}
+	raw, ok := top[wrapperKey]
+	if !ok {
+		keys := make([]string, 0, len(top))
+		for k := range top {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		return fmt.Errorf("object response missing %q key (top-level keys: %s)", wrapperKey, strings.Join(keys, ", "))
+	}
+	return json.Unmarshal(raw, dst)
+}
 
 const repairInstruction = `Your previous response was not valid JSON for the required schema. Here is your previous response:
 

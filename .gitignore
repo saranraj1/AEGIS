@@ -17,3 +17,6 @@ __pycache__/
 aegis_verify.egg-info/
 .pytest_cache/
 .ruff_cache/
+
+# local live-smoke credentials
+.local/

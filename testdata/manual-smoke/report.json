@@ -1,0 +1,36 @@
+{
+  "id": "explain-cache-key",
+  "ok": true,
+  "exit_reason": "ok",
+  "prompt": "How does aegis hash a cache key?\n",
+  "output": "The cache key is sha256 of prompt, output, and spec.\n",
+  "claims": [
+    {
+      "id": "c0",
+      "text": "The cache key is sha256 of prompt, output, and spec.",
+      "stance": "asserted",
+      "grounding": "supported",
+      "grounding_reason": "",
+      "evidence": [
+        {
+          "path": "\u003cinline\u003e",
+          "quote": "cache key = sha256(prompt + output + spec)",
+          "line": 1
+        }
+      ]
+    }
+  ],
+  "steps": [],
+  "critique": {
+    "verdict": "agree",
+    "notes": "The extracted claim is directly supported by the provided inline evidence, which explicitly states the formula for the cache key. There is no contradiction or logical gap in the provided context.",
+    "disputed_claim_ids": []
+  },
+  "code_checks": [],
+  "failed_assertions": null,
+  "warnings": [],
+  "cache": {
+    "hit": false,
+    "key": "b8d09e0931af1def4fb412403e06e530ca738693f8c1f8f885a0ab5d9f70d2d9"
+  }
+}

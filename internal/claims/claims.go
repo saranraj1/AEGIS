@@ -7,7 +7,6 @@ package claims
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -28,7 +27,8 @@ func SystemPrompt() string {
 	return "You extract atomic factual claims from an assistant answer. " +
 		"Each claim must be one short, self-contained factual statement whose wording comes from the answer. " +
 		"Mark a claim \"hedged\" if the answer qualifies it with words like may, might, possibly, or could; otherwise \"asserted\". " +
-		"Reply with JSON only: an array of objects {\"text\": string, \"stance\": \"asserted\"|\"hedged\"}."
+		"Reply with JSON only as an OBJECT with one key: {\"claims\": [{\"text\": string, \"stance\": \"asserted\"|\"hedged\"}]} " +
+		"(the response_format json_object mode requires a top-level object; claims live under the claims key)."
 }
 
 // UserPrompt builds the user message: the output plus a deterministic
@@ -44,7 +44,7 @@ func UserPrompt(output string, seeds []string) string {
 		b.WriteString("\n")
 	}
 	b.WriteString("\nExtract every atomic factual claim. " +
-		"Reply with JSON only: [{\"text\": \"...\", \"stance\": \"asserted\"|\"hedged\"}].")
+		"Reply with JSON only as an object: {\"claims\": [{\"text\": \"...\", \"stance\": \"asserted\"|\"hedged\"}]}.")
 	return b.String()
 }
 
@@ -61,7 +61,7 @@ func Extract(ctx context.Context, prov provider.Provider, jobID, output string) 
 	var raws []Raw
 	_, warnings, err := stagejson.Call(ctx, prov, req, func(content string) error {
 		raws = nil
-		return json.Unmarshal([]byte(content), &raws)
+		return stagejson.DecodeArray(content, "claims", &raws)
 	})
 	if err != nil {
 		return nil, warnings, err

@@ -18,7 +18,6 @@ package ground
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -87,9 +86,8 @@ type rawGround struct {
 func SystemPrompt() string {
 	return "You verify claims strictly against the provided context excerpts. Never use outside knowledge. " +
 		"For each claim decide: supported (the context states it), contradicted (the context states the opposite), " +
-		"or not-in-context (the context does not address it). " +
-		"Reply with JSON only: an array of objects " +
-		"{\"claim_id\": string, \"grounding\": \"supported\"|\"contradicted\"|\"not-in-context\", \"quote\": string}. " +
+		"or not-in-context (the context does not address it). " + "Reply with JSON only as an OBJECT with one key: {\"results\": [{\"claim_id\": string, \"grounding\": \"supported\"|\"contradicted\"|\"not-in-context\", \"quote\": string}]}. " +
+		"(the response_format json_object mode requires a top-level object; records live under the results key). " +
 		"quote must be an exact substring of the context and is required for supported and contradicted; " +
 		"omit it for not-in-context. Include every claim id exactly once."
 }
@@ -109,8 +107,8 @@ func UserPrompt(contextText string, batch []report.Claim) string {
 		fmt.Fprintf(&b, "%s: %s\n", c.ID, c.Text)
 	}
 	b.WriteString("\nGround every claim against the context only. " +
-		"Reply with JSON only: " +
-		"[{\"claim_id\": \"...\", \"grounding\": \"supported\"|\"contradicted\"|\"not-in-context\", \"quote\": \"...\"}].")
+		"Reply with JSON only as an object: " +
+		"{\"results\": [{\"claim_id\": \"...\", \"grounding\": \"supported\"|\"contradicted\"|\"not-in-context\", \"quote\": \"...\"}]}.")
 	return b.String()
 }
 
@@ -173,7 +171,7 @@ func runBatch(ctx context.Context, prov provider.Provider, jobID string, batch [
 	var records []rawGround
 	_, callWarns, err := stagejson.Call(callCtx, prov, req, func(content string) error {
 		records = nil
-		if err := json.Unmarshal([]byte(content), &records); err != nil {
+		if err := stagejson.DecodeArray(content, "results", &records); err != nil {
 			return err
 		}
 		for i, r := range records {

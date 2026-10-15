@@ -441,10 +441,14 @@ mirroring the CI `go` job:
   stub example) + `ruff` clean — the risk-#1 “one Go snapshot, two consumers”
   mitigation is implemented in `python/tests/test_schema_contract.py`.
 
-Open gate: the phase-7 opt-in live smoke (`USER_LLM_*` against a real
+~~Open gate: the phase-7 opt-in live smoke (`USER_LLM_*` against a real
 endpoint, transcript to `testdata/manual-smoke/`, not CI) is **blocked in this
 environment — no `USER_LLM_*` key is present**. It remains the single
-unexecuted gate and must run once manually before any v1 tag.
+unexecuted gate and must run once manually before any v1 tag.~~
+RESOLVED 2026-10-15: the gate was executed with a user-supplied OpenAI-
+compatible key (transcript artifacts in `testdata/manual-smoke/`, not CI),
+PASS — after Phase 9 fixed a real interop bug it exposed (below). The
+only remaining pre-tag action is key rotation by the key owner.
 
 Addendum 2026-10-15 — risk-#4 “tests too happy” mitigation shipped. The
 committed testdata fixture set is no longer happy-path-only; it now pairs
@@ -491,6 +495,24 @@ but the Go binary never wrote anything to stdout on exit 2.
 - Re-verified: gofmt/vet clean, `go test -count=1 ./...` all packages,
   golden diff-clean + regen byte-stable, gofmt-scoped build OK, Python
   side unchanged (pytest 20, ruff clean).
+
+Addendum 3 (2026-10-15) — Phase 9, live-smoke interop fix. Executing the
+long-blocked live gate surfaced a real bug the fake provider could never
+show: under `response_format: json_object` (C6: default on), compliant
+endpoints enforce a top-level JSON OBJECT and bend the array-topped stage
+reply schemas (`claims`, `ground`, `reason` asked for bare arrays) into
+single objects, deterministically failing both the original call and the
+repair retry for two unrelated model families. Fix: stage replies are now
+object-topped (claims `{"claims": [...]}`, ground `{"results": [...]}`
+— the shape A11 already specified — reason `{"steps": [...]}`), and a
+shared `stagejson.DecodeArray` accepts the wrapper OR a bare array, so
+the committed fixtures and the golden keep decoding unchanged; a bare
+single-record object is still an error (no salvage). New wrapper/repair
+tests in claims/ground/reason plus decoder table tests in stagejson.
+Matrix re-verified green (gofmt/vet/build/test -count=1, golden diff-clean,
+regen byte-stable); Python side untouched. Retry against the real endpoint
+now passes: exit 0, claim grounded with valid evidence, PASS recorded in
+`testdata/manual-smoke/NOTES.md`.
 
 Original D1–D5 question text is preserved in the session record; the resolved
 rulings above are the operative contract for implementation.

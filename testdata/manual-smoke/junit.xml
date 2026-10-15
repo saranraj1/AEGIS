@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="aegis" tests="1" failures="0" id="1">
+  <testcase name="explain-cache-key" classname="aegis"/>
+</testsuite>

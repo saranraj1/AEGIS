@@ -8,7 +8,6 @@ package reason
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -31,7 +30,7 @@ var idRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{0,31}$`)
 func SystemPrompt() string {
 	return "You rebuild the reasoning behind an answer as a short list of inspectable steps. " +
 		"Each step cites the claims it relies on. " +
-		"Reply with JSON only: an array of objects {\"id\": string, \"text\": string, \"depends_on\": [string]}. " +
+		"Reply with JSON only as an OBJECT with one key: {\"steps\": [{\"id\": string, \"text\": string, \"depends_on\": [string}]}. " +
 		"ids are short slugs starting with a letter; depends_on entries are claim ids (c0, c1, ...) or ids of earlier steps."
 }
 
@@ -43,8 +42,8 @@ func UserPrompt(claims []report.Claim) string {
 		fmt.Fprintf(&b, "%s: %s\n", c.ID, c.Text)
 	}
 	b.WriteString("\nRebuild the reasoning as steps. " +
-		"Reply with JSON only: [{\"id\": \"...\", \"text\": \"...\", \"depends_on\": [\"...\"]}]. " +
-		"An empty list is acceptable when no steps can be identified.")
+		"Reply with JSON only as an object: {\"steps\": [{\"id\": \"...\", \"text\": \"...\", \"depends_on\": [\"...\"]}]}. " +
+		"An empty list under the steps key is acceptable when no steps can be identified.")
 	return b.String()
 }
 
@@ -60,7 +59,7 @@ func Run(ctx context.Context, prov provider.Provider, jobID string, claims []rep
 	var raws []rawStep
 	_, warnings, err := stagejson.Call(ctx, prov, req, func(content string) error {
 		raws = nil
-		return json.Unmarshal([]byte(content), &raws)
+		return stagejson.DecodeArray(content, "steps", &raws)
 	})
 	if err != nil {
 		return nil, warnings, err
