@@ -1,0 +1,27 @@
+# Failure-path companion of explain-cache-key (testdata set pairing, plan
+# risk #4): identical prompt/output/context/assertions, but the fake
+# ground fixture below marks claim c0 "not-in-context", so grounded and
+# max_ungrounded fail and the run ends exit 1 with ok=false. Replays with:
+#   aegis run testdata/jobs/explain-cache-key-failure.yaml \
+#     --fake-provider --fake-dir testdata/fixtures --no-cache
+id: explain-cache-key-failure
+prompt: |
+  How does aegis hash a cache key?
+output: |
+  The cache key is sha256 of prompt, output, and spec.
+context:
+  inline: |
+    cache key = sha256(prompt + output + spec)
+assertions:
+  must_claim:
+    - cache key is sha256 of prompt, output, and spec
+  must_not_claim:
+    - cache is stored in git
+  grounded: true
+  max_ungrounded: 0
+  critique_must_agree: false
+  code:
+    parse: false
+model:
+  wrap: false
+  critique_model: null

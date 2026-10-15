@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -72,4 +73,86 @@ func jsonEqual(a, b map[string]any) bool {
 	ab, _ := json.Marshal(a)
 	bb, _ := json.Marshal(b)
 	return string(ab) == string(bb)
+}
+
+// TestRunFailureFixturesE2E pins the failure-path half of the committed
+// testdata set (plan risk #4): every happy-path fixture is paired with at
+// least one failure fixture in the same directory, and both failure exit
+// classes replay through the real CLI. Zero network.
+func TestRunFailureFixturesE2E(t *testing.T) {
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixturesDir := filepath.Join(root, "..", "..", "testdata", "fixtures")
+
+	t.Run("ungrounded must_claim is exit 1 with a full report", func(t *testing.T) {
+		jobPath := filepath.Join(root, "..", "..", "testdata",
+			"jobs", "explain-cache-key-failure.yaml")
+		code, out, errOut := runCLI(t, "run", jobPath,
+			"--fake-provider", "--fake-dir", fixturesDir,
+			"--cache-dir", filepath.Join(t.TempDir(), "cache"), "--no-cache")
+		if errOut != "" {
+			t.Errorf("exit-1 stderr must stay silent, got %q", str(errOut))
+		}
+		if code != 1 {
+			t.Fatalf("exit=%d stdout=%.200s", code, str(out))
+		}
+		var rep map[string]any
+		if err := json.Unmarshal([]byte(out), &rep); err != nil {
+			t.Fatalf("stdout is not a report: %v\n%s", err, str(out))
+		}
+		if rep["ok"] != false || rep["exit_reason"] != "assertions_failed" {
+			t.Fatalf("ok=%v reason=%v", rep["ok"], rep["exit_reason"])
+		}
+		claims, ok := rep["claims"].([]any)
+		if !ok || len(claims) != 1 {
+			t.Fatalf("claims=%v", rep["claims"])
+		}
+		c0 := claims[0].(map[string]any)
+		if c0["id"] != "c0" || c0["grounding"] != "not-in-context" {
+			t.Fatalf("c0=%v", c0)
+		}
+		if ev, want := c0["evidence"].([]any), 0; len(ev) != want {
+			t.Fatalf("c0 evidence=%v, want "+"[]", ev)
+		}
+		fa, ok := rep["failed_assertions"].([]any)
+		if !ok || len(fa) != 2 {
+			t.Fatalf("failed_assertions=%v, want exactly [grounded, max_ungrounded]", rep["failed_assertions"])
+		}
+		want := []struct{ typ, expected, actual string }{
+			{"grounded", "supported", "not-in-context"},
+			{"max_ungrounded", "<=0", "1"},
+		}
+		for i, e := range fa {
+			m, ok := e.(map[string]any)
+			if !ok {
+				t.Fatalf("failed_assertions[%d] not an object: %v", i, e)
+			}
+			if m["type"] != want[i].typ || m["expected"] != want[i].expected || m["actual"] != want[i].actual {
+				t.Fatalf("failed_assertions[%d]=%v, want %+v", i, m, want[i])
+			}
+		}
+	})
+
+	t.Run("invalid claims JSON is exit 2 without a report", func(t *testing.T) {
+		jobPath := filepath.Join(root, "..", "..", "testdata",
+			"jobs", "explain-cache-key-badjson.yaml")
+		code, out, errOut := runCLI(t, "run", jobPath,
+			"--fake-provider", "--fake-dir", fixturesDir,
+			"--cache-dir", filepath.Join(t.TempDir(), "cache"), "--no-cache")
+		if code != 2 {
+			t.Fatalf("exit=%d stderr=%s", code, str(errOut))
+		}
+		if strings.TrimSpace(out) != "" {
+			t.Fatalf("exit-2 must print no report, got %.200s", str(out))
+		}
+		// D2 kind-first line: error: provider-bad-response: stage claims: ...
+		if !strings.HasPrefix(errOut, "error: provider-bad-response: ") {
+			t.Fatalf("stderr not kind-first: %s", str(errOut))
+		}
+		if !strings.Contains(errOut, "stage claims: response still not valid JSON after one repair retry") {
+			t.Fatalf("stderr lost the repair-retry context: %s", str(errOut))
+		}
+	})
 }

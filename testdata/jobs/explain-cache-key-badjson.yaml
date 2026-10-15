@@ -1,0 +1,28 @@
+# Failure-path companion of explain-cache-key (testdata set pairing, plan
+# risk #4): identical job, but the fake claims fixture is invalid JSON.
+# The claims stage burns its one repair retry on the same bad fixture and
+# the run ends exit 2 with a kind-first "error: provider-bad-response: ..."
+# on stderr and NO report. Replays with:
+#   aegis run testdata/jobs/explain-cache-key-badjson.yaml \
+#     --fake-provider --fake-dir testdata/fixtures --no-cache
+id: explain-cache-key-badjson
+prompt: |
+  How does aegis hash a cache key?
+output: |
+  The cache key is sha256 of prompt, output, and spec.
+context:
+  inline: |
+    cache key = sha256(prompt + output + spec)
+assertions:
+  must_claim:
+    - cache key is sha256 of prompt, output, and spec
+  must_not_claim:
+    - cache is stored in git
+  grounded: true
+  max_ungrounded: 0
+  critique_must_agree: false
+  code:
+    parse: false
+model:
+  wrap: false
+  critique_model: null

@@ -446,5 +446,28 @@ endpoint, transcript to `testdata/manual-smoke/`, not CI) is **blocked in this
 environment — no `USER_LLM_*` key is present**. It remains the single
 unexecuted gate and must run once manually before any v1 tag.
 
+Addendum 2026-10-15 — risk-#4 “tests too happy” mitigation shipped. The
+committed testdata fixture set is no longer happy-path-only; it now pairs
+`explain-cache-key` with two failure companions, each replaying through the
+real CLI in `TestRunFailureFixturesE2E` (zero network):
+
+- `explain-cache-key-failure` (exit 1): ground fixture marks the must claim
+  `not-in-context`, so `grounded` + `max_ungrounded` fail; test pins
+  `ok=false`, `exit_reason="assertions_failed"`, the exact two
+  `failed_assertions` entries, and claim `c0` grounding/evidence shape.
+- `explain-cache-key-badjson` (exit 2): invalid-JSON claims fixture burns
+  the repair retry and hard-fails; test pins stdout empty and the kind-first
+  line `error: provider-bad-response: stage claims: ...`.
+
+The exit-2 pair exposed a real D2-convention bug now fixed: the stagejson
+repair-exhausted error escaped as a kindless plain error; it is now a
+structured `provider.Error` with kind `provider-bad-response`, matching all
+other stage failures. Re-verified after the fix: gofmt/vet clean,
+`go test -count=1 ./...` 15/15 packages, golden diff-clean and regen
+byte-stable, `go build ./...` OK; Python side unchanged (20 pytest, ruff
+clean). Timeout/4xx and 5xx failure fixtures remain live-phase only (the
+fake provider cannot simulate transport failures); their code paths are
+already covered by provider and ground unit tests.
+
 Original D1–D5 question text is preserved in the session record; the resolved
 rulings above are the operative contract for implementation.

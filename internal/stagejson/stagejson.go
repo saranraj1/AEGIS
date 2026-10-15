@@ -43,7 +43,13 @@ func Call(ctx context.Context, prov provider.Provider, req provider.Request, par
 	warnings := append(append([]string{}, resp.Warnings...), resp2.Warnings...)
 	warnings = append(warnings, fmt.Sprintf("stage %s: json repair retry used", req.Stage))
 	if parseErr := parse(resp2.Content); parseErr != nil {
-		return "", warnings, fmt.Errorf("stage %s: response still not valid JSON after one repair retry: %w", req.Stage, parseErr)
+		// Structured error so the CLI's exit-2 line stays kind-first
+		// (D2: "error: provider-bad-response: ..."), like all other
+		// stage failures.
+		return "", warnings, &provider.Error{
+			Kind: provider.KindBadResponse,
+			Msg:  fmt.Sprintf("stage %s: response still not valid JSON after one repair retry: %v", req.Stage, parseErr),
+		}
 	}
 	return resp2.Content, warnings, nil
 }
