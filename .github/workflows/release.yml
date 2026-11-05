@@ -1,0 +1,131 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.0)"
+        required: true
+        default: "v1.0.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            archive_ext: tar.gz
+          - goos: linux
+            goarch: arm64
+            archive_ext: tar.gz
+          - goos: darwin
+            goarch: amd64
+            archive_ext: tar.gz
+          - goos: darwin
+            goarch: arm64
+            archive_ext: tar.gz
+          - goos: windows
+            goarch: amd64
+            archive_ext: zip
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build binary
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          fi
+          COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          
+          OUTPUT_DIR="dist/${{ matrix.goos }}_${{ matrix.goarch }}"
+          mkdir -p "$OUTPUT_DIR"
+          
+          BIN_NAME="aegis"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BIN_NAME="aegis.exe"
+          fi
+          
+          LDFLAGS="-s -w -X main.version=${TAG} -X main.commit=${COMMIT} -X main.date=${BUILD_DATE}"
+          go build -ldflags="${LDFLAGS}" -o "${OUTPUT_DIR}/${BIN_NAME}" ./cmd/aegis
+
+      - name: Package archive
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          fi
+          ARCHIVE_NAME="aegis_${TAG}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          SRC_DIR="dist/${{ matrix.goos }}_${{ matrix.goarch }}"
+          
+          cp README.md LICENSE "$SRC_DIR/"
+          mkdir -p artifacts
+          
+          if [ "${{ matrix.archive_ext }}" = "zip" ]; then
+            (cd "$SRC_DIR" && zip -r "../../artifacts/${ARCHIVE_NAME}.zip" .)
+          else
+            tar -czvf "artifacts/${ARCHIVE_NAME}.tar.gz" -C "$SRC_DIR" .
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    needs: [build-release]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all built artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          pattern: binaries-*
+          merge-multiple: true
+
+      - name: Generate SHA-256 Checksums
+        run: |
+          cd release-assets
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create or Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          name: Aegis ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

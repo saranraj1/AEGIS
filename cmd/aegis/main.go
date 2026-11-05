@@ -18,6 +18,13 @@ import (
 	"os"
 )
 
+// Build metadata injected at link time via -ldflags.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func main() {
 	os.Exit(realMain(os.Args[1:], os.Stdout, os.Stderr))
 }
@@ -36,6 +43,9 @@ func realMain(args []string, stdout, stderr io.Writer) int {
 		return code
 	case "cache":
 		return cacheCmd(args[1:], stdout, stderr)
+	case "version", "--version", "-v":
+		fmt.Fprintf(stdout, "aegis version %s (commit %s, built %s)\n", version, commit, date)
+		return 0
 	case "help", "--help", "-h":
 		usage(stdout)
 		return 0
@@ -52,6 +62,7 @@ func usage(w io.Writer) {
 Usage:
   aegis run <job.yaml|job.json|-> [flags]
   aegis cache gc --older-than <duration>
+  aegis version
 
 run flags:
   -o, --output PATH    write the report JSON to PATH (default stdout)

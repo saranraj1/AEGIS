@@ -277,6 +277,10 @@ func TestHelpAndUnknownCommand(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "aegis run") {
 		t.Fatalf("help exit=%d out=%.100s", code, str(out))
 	}
+	code, out, _ = runCLI(t, "version")
+	if code != 0 || !strings.Contains(out, "aegis version") {
+		t.Fatalf("version exit=%d out=%.100s", code, str(out))
+	}
 	code, _, errOut := runCLI(t, "frobnicate")
 	if code != 2 || !strings.Contains(errOut, "unknown command") {
 		t.Fatalf("unknown cmd exit=%d err=%s", code, str(errOut))
