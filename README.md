@@ -1,36 +1,122 @@
-# aegis
+# Aegis
 
-**CI assertions for LLM explainability and verification.** Aegis turns a
-prompt, a model output, and a set of declarative assertions into a
-structured audit report and a CI exit code. It always runs four stages
-(extract claims → ground against your context → rebuild reasoning steps
-→ forced-refute critique), records every intermediate value, and fails
-the build when a required claim is ungrounded.
+Deterministic CI verification and explainability audit engine for LLM outputs.
 
-Live audit:
+[![Go Report Card](https://goreportcard.com/badge/github.com/saranraj1/AEGIS)](https://goreportcard.com/report/github.com/saranraj1/AEGIS)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+Aegis evaluates language model completions against formal, declarative assertions. Rather than relying on non-deterministic scoring prompts or heuristic benchmarks, Aegis parses model completions through a four-stage audit pipeline, generates structured evidence citations, writes JUnit XML reports for CI test suites, and exits with standard Unix status codes.
+
+---
+
+## Table of Contents
+
+- [Core Audit Pipeline](#core-audit-pipeline)
+- [Installation](#installation)
+- [Quickstart](#quickstart)
+- [Execution Output](#execution-output)
+- [Job Specification](#job-specification)
+- [Deterministic Replay Cache](#deterministic-replay-cache)
+- [Exit Code Contract](#exit-code-contract)
+- [Python SDK and Pytest Plugin](#python-sdk-and-pytest-plugin)
+- [CLI Reference](#cli-reference)
+- [Development and Testing](#development-and-testing)
+- [Repository Structure](#repository-structure)
+- [License](#license)
+
+---
+
+## Core Audit Pipeline
+
+Every Aegis verification job executes four sequential stages. Intermediate artifacts from each stage are preserved in the final report:
 
 ```text
-aegis run job.yaml          ──►  report.json (stdout or -o) + JUnit + exit code
-aegis run job.yaml --record ──►  same, written to the replay cache
-aegis run job.yaml --offline──►  replay only: no model call, no env needed
+  [ Job Spec: prompt, output, context, assertions ]
+                         |
+                         v
+   Stage 1: Claims Extraction (Atomic factual propositions)
+                         |
+                         v
+   Stage 2: Context Grounding (Supported / Contradicted / Ungrounded)
+                         |
+                         v
+   Stage 3: Reasoning Graph (Directed dependency steps)
+                         |
+                         v
+   Stage 4: Adversarial Critique (Forced-refute validation)
+                         |
+                         v
+  [ Report JSON + JUnit XML + Exit Code (0, 1, or 2) ]
 ```
 
-- **Exit 0** — all assertions passed.
-- **Exit 1** — assertions failed (reasons are in the report).
-- **Exit 2** — the run could not complete (bad job, cache miss in
-  `--cache-only`, provider failure, missing `USER_LLM_*`, …). Stderr is
-  one line: `error: <kind>: <message>`.
+1. **Claims Extraction:** Extracts atomic factual assertions from model output, tagging stance (asserted or hedged).
+2. **Context Grounding:** Evaluates each claim against provided reference context files, attributing citations (file path, exact quote, line number) and status (`supported`, `contradicted`, `not-in-context`, or `ungrounded`).
+3. **Reasoning Graph:** Reconstructs the logical argument steps, establishing explicit dependencies between claims and intermediate deductions.
+4. **Adversarial Critique:** Prompts a referee stage to challenge unstated assumptions, spot unsupported leaps, and flag hallucinations.
+
+---
+
+## Installation
+
+### Pre-compiled Binaries
+
+Download compiled binaries for your operating system and architecture from the [GitHub Releases](https://github.com/saranraj1/AEGIS/releases) page:
+
+- **Linux:** `aegis_linux_amd64.tar.gz`, `aegis_linux_arm64.tar.gz`
+- **macOS:** `aegis_darwin_amd64.tar.gz` (Intel), `aegis_darwin_arm64.tar.gz` (Apple Silicon)
+- **Windows:** `aegis_windows_amd64.zip`
+
+Extract the binary and place it in your system `PATH`:
+
+```bash
+# Example for Linux/macOS
+tar -xzf aegis_*_linux_amd64.tar.gz
+sudo mv aegis /usr/local/bin/
+```
+
+### Install via Go
+
+If you have Go 1.22 or newer installed:
+
+```bash
+go install github.com/saranraj1/AEGIS/cmd/aegis@latest
+```
+
+### Build from Source
+
+```bash
+git clone https://github.com/saranraj1/AEGIS.git
+cd AEGIS
+go build -o aegis ./cmd/aegis
+```
+
+### Python Package
+
+The Python SDK and pytest integration can be installed directly from source:
+
+```bash
+pip install -e python
+```
+
+---
 
 ## Quickstart
 
-```bash
-# 1. Bring your own OpenAI-compatible endpoint.
-export USER_LLM_API_KEY=sk-...
-export USER_LLM_BASE_URL=https://api.example.com/v1
-export USER_LLM_MODEL=my-model
+### 1. Configure Provider Credentials
 
-# 2. Write a job.
-cat > my-job.yaml <<'EOF'
+Aegis connects to any OpenAI-compatible API endpoint:
+
+```bash
+export USER_LLM_API_KEY="your-api-key"
+export USER_LLM_BASE_URL="https://api.openai.com/v1"
+export USER_LLM_MODEL="gpt-4o"
+```
+
+### 2. Define a Verification Job
+
+Create a job definition file in YAML or JSON format (for example, `job.yaml`):
+
+```yaml
 id: explain-cache-key
 prompt: |
   How does aegis hash a cache key?
@@ -46,180 +132,288 @@ assertions:
     - cache is stored in git
   grounded: true
   max_ungrounded: 0
-EOF
-
-# 3. Run it (live), then replay it anywhere without a key.
-aegis run my-job.yaml --record
-aegis run my-job.yaml --offline
 ```
 
-Need a dry run without any credentials at all?
+### 3. Run the Verification
+
+Execute the verification run and record the output in the replay cache:
 
 ```bash
-aegis run my-job.yaml --fake-provider --fake-dir testdata/fixtures
+aegis run job.yaml --record
 ```
 
-`--fake-provider` serves canned stage responses from
-`--fake-dir/<job-id>.{wrap|claims|ground|reason|critique}.json` and never
-reads any environment key. The committed `testdata/` set is exactly this
-against the default `.aegis/cache` replay store.
+### 4. Replay in CI Without Credentials
 
-## Job spec reference
+Replay the cached run offline on Pull Requests with zero API calls, zero latency, and zero token expense:
 
-Jobs are YAML or JSON (`aegis run job.yaml|job.json|-`; `-` is stdin).
+```bash
+aegis run job.yaml --offline
+```
 
-| Field | Type | Required | Meaning |
-|---|---|---|---|
-| `id` | string | yes* | JUnit testcase name; fixtures are keyed on it |
-| `prompt` | string | yes | asked to the model when `output` is absent |
-| `output` | string | no | frozen model output; if missing, Primary model is called once (wrap, temperature 0); empty completion is exit 2 |
-| `context.files` | list of paths | no | read from disk; missing file is exit 2 |
-| `context.inline` | string | no | treated as a synthetic file `<inline>` |
-| `assertions.must_claim` | list of strings | no | each must fuzzy-match a claim: after NFKC/lower/whitespace, either your string is a substring of the claim, or token F1 ≥ 0.8; hedged claims still count |
-| `assertions.must_not_claim` | list of strings | no | inversely none may match |
-| `assertions.grounded` | bool (default false) | no | every `must_claim` match must be `supported` |
-| `assertions.max_ungrounded` | int (default unbounded) | no | caps claims whose grounding is `ungrounded`, `not-in-context`, or `contradicted`; independent of `grounded` |
-| `assertions.critique_must_agree` | bool (default false) | no | otherwise critique is informational |
-| `assertions.code.parse` | bool (default false) | no | parse any Go/Python snippet found in output; parse failure → `code.parse` failed assertion |
-| `model.wrap` | bool (default false) | no | if true, ignore `output` and always call the model |
-| `model.critique_model` | string | no | override model id for the critique stage only |
-| `schema_version` | int (default 1) | no | reserved; v1 only accepts 1 |
+---
 
-Unknown fields are a hard error. A job with no assertions still runs all
-four stages and exits 0.
+## Execution Output
 
-## Report schema
+When running a verification job, Aegis prints the full audit report as JSON to standard output (or writes it to a file via `-o/--output`).
 
-JSON report (stdout by default, or `-o PATH`):
+### Invocation Command
+
+```bash
+aegis run testdata/jobs/explain-cache-key.yaml --fake-provider --fake-dir testdata/fixtures
+```
+
+### Verbatim CLI Output
 
 ```json
 {
   "id": "explain-cache-key",
   "ok": true,
   "exit_reason": "ok",
-  "claims": [{"id": "c0", "text": "...", "stance": "asserted",
-               "grounding": "supported", "grounding_reason": "",
-               "evidence": [{"path": "<inline>", "quote": "...", "line": 1}]}],
-  "steps": [{"id": "s1", "text": "...", "depends_on": ["c0"]}],
-  "critique": {"verdict": "agree", "notes": "...", "disputed_claim_ids": []},
+  "prompt": "How does aegis hash a cache key?\n",
+  "output": "The cache key is sha256 of prompt, output, and spec.\n",
+  "claims": [
+    {
+      "id": "c0",
+      "text": "The cache key is sha256 of prompt, output, and spec.",
+      "stance": "asserted",
+      "grounding": "supported",
+      "grounding_reason": "",
+      "evidence": [
+        {
+          "path": "<inline>",
+          "quote": "cache key = sha256(prompt + output + spec)",
+          "line": 1
+        }
+      ]
+    }
+  ],
+  "steps": [
+    {
+      "id": "s1",
+      "text": "Hash covers prompt, output, and normalized spec.",
+      "depends_on": [
+        "c0"
+      ]
+    }
+  ],
+  "critique": {
+    "verdict": "agree",
+    "notes": "evidence quote matches the inline spec.",
+    "disputed_claim_ids": []
+  },
   "code_checks": [],
-  "failed_assertions": [],
+  "failed_assertions": null,
   "warnings": [],
-  "cache": {"hit": false, "key": "b8d09e..."}
+  "cache": {
+    "hit": false,
+    "key": "b8d09e0931af1def4fb412403e06e530ca738693f8c1f8f885a0ab5d9f70d2d9"
+  }
 }
 ```
 
-`grounding` values: `supported` | `contradicted` | `not-in-context` |
-`ungrounded` (with reason `invalid-evidence` or `timeout`).
-`exit_reason`: `ok` | `assertions_failed` | `engine_error`.
-`--junit PATH` writes a JUnit testsuite for CI.
+---
 
-### Exit-2 stdout (A1 contract)
+## Job Specification
 
-On exit 2 the stderr line is kind-first (`error: <kind>: <message>`).
-Stdout splits by failure class: when the job parsed and the failure
-happened *inside* the pipeline (cache lookup/miss, wrap, or any stage
-call — a `provider-bad-response`, `cache-miss`, `run-timeout`, ...), a
-best-effort **one-line** JSON with `"ok": false,
-"exit_reason": "engine_error"` is printed to stdout so tooling can
-identify the job. Load-stage hard failures (bad YAML, unknown fields,
-missing context file) leave stdout empty and unparseable. Note that a
-report written with `-o`/`--output` still applies only to exit 0/1
-runs; the engine-error line always goes to stdout.
+Jobs can be supplied as YAML, JSON, or standard input (`aegis run -`).
 
-The Python shim (`python/aegis`) parses this exact JSON into typed
-dataclasses and is pinned to the committed Go golden report by a
-schema-contract test — one source of truth, two consumers.
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Unique identifier used for JUnit testcase names and cache fixture keys. |
+| `prompt` | string | yes | Prompt provided to the model. Required when `output` is omitted. |
+| `output` | string | no | Static model output. If omitted, Primary model is called once to generate text. |
+| `context.files` | list of strings | no | File paths to load into grounding context. Missing files trigger exit code 2. |
+| `context.inline` | string | no | Literal text included as synthetic file `<inline>` in grounding context. |
+| `assertions.must_claim` | list of strings | no | Claims that must appear in the output. Matched via NFKC normalization and token F1 >= 0.8. |
+| `assertions.must_not_claim` | list of strings | no | Claims that must not appear in the output. |
+| `assertions.grounded` | boolean | no | When true, every matched `must_claim` must have `supported` grounding status. Default: false. |
+| `assertions.max_ungrounded` | integer | no | Maximum allowed claims with `ungrounded`, `not-in-context`, or `contradicted` status. |
+| `assertions.critique_must_agree` | boolean | no | When true, an adversarial critique verdict of `disagree` fails the run. Default: false. |
+| `assertions.code.parse` | boolean | no | Validates syntax of Python and Go code snippets extracted from output. Default: false. |
+| `model.wrap` | boolean | no | When true, forces live model execution even if `output` is supplied. Default: false. |
+| `model.critique_model` | string | no | Custom model identifier override for the critique stage. |
+| `schema_version` | integer | no | Specification version. Currently must be 1. Default: 1. |
 
-## Python: `aegis-verify` package and pytest plugin
+---
 
-The Python shim never calls a model and imports no HTTP client: it
-writes a job file, runs the binary (`aegis` on `PATH`, or `AEGIS_BINARY`),
-parses the report, and raises on failure with the claims inlined.
+## Deterministic Replay Cache
+
+Aegis features a content-addressed replay cache designed for cost-effective CI workflows.
+
+### Cache Key Composition
+
+The cache key is a SHA-256 hash calculated over:
+- Model prompt text.
+- Model completion output.
+- Normalized job specification (context paths, inline context, assertion parameters, model identifiers).
+
+Because assertion parameters are baked into the hash key, tightening or adding a `must_claim` invalidates the cache and requires a fresh live execution. Replaying old reports against newly altered assertions is disallowed by design.
+
+### CI Workflow Pattern
+
+Recommended CI architecture:
+
+1. **Main Branch (Merge Workflow):** Run with `--record` to refresh the replay cache when features or prompts change:
+   ```bash
+   aegis run tests/jobs/query-accuracy.yaml --record
+   ```
+2. **Pull Requests (Gate Workflow):** Run with `--offline` (`--cache-only`) to enforce zero-flake, zero-cost regression testing:
+   ```bash
+   aegis run tests/jobs/query-accuracy.yaml --offline
+   ```
+
+### Cache Maintenance
+
+Purge expired cache entries using the cache garbage collection command:
 
 ```bash
-pip install -e "python[dev]"     # takes pytest + ruff
+aegis cache gc --older-than 720h --cache-dir .aegis/cache
 ```
+
+---
+
+## Exit Code Contract
+
+Aegis communicates results through standard Unix exit codes:
+
+- **Exit 0 (Success):** All assertions passed. Report JSON contains complete stage data and citations.
+- **Exit 1 (Assertion Failure):** One or more declarative assertions failed. The report JSON lists specific violations under `failed_assertions`.
+- **Exit 2 (Engine Error):** Execution could not proceed due to invalid inputs, missing context files, provider API timeouts, or cache misses in `--offline` mode.
+
+### Error Protocol
+
+On exit code 2, standard error outputs a single formatted line:
+
+```text
+error: <kind>: <message>
+```
+
+When an error occurs after job parsing has succeeded (such as provider timeouts or cache misses), Aegis prints a machine-readable JSON object to standard output containing `"ok": false` and `"exit_reason": "engine_error"` to allow downstream orchestration tools to pinpoint the failed job.
+
+---
+
+## Python SDK and Pytest Plugin
+
+The `aegis-verify` Python package executes the Aegis binary as an external validation engine. It imports no HTTP libraries and requires no model API tokens in test environments.
+
+### Installation
+
+```bash
+pip install -e python
+```
+
+### Pytest Integration
 
 ```python
 import aegis
 
 def test_cache_key_explanation():
-    r = aegis.verify(
+    report = aegis.verify(
         prompt="How does aegis hash a cache key?",
-        output=model_text,
+        output="The cache key is sha256 of prompt, output, and spec.",
         context_files=["internal/cache/key.go"],
         must_claim=["cache key is sha256 of prompt, output, and spec"],
         grounded=True,
-        # raise_on_fail=True,  # assert failures inline claims for you
+        raise_on_fail=True,
     )
-    assert r.ok
+    assert report.ok
 ```
 
-With the plugin (`pytest11` entry point `aegis`), `verify(id=None)`
-defaults the job id to the running test's node id and plain
-`assert r.ok` failures get a hint pointing at `raise_on_fail`. Without
-the plugin everything still works — the plugin only adds polish.
+When running under `pytest`, the Aegis plugin automatically binds `job.id` to the active test node ID.
 
-Work offline or in CI with zero model access either by replaying the
-recorded cache (`cache_only=True`, mirroring the Go `--offline`) or by
-pointing `AEGIS_BINARY` at a stub. `examples/pytest-example` does
-exactly that and is run green by CI:
+---
 
-```bash
-pytest examples/pytest-example -q
+## CLI Reference
+
+```text
+Usage:
+  aegis run <job.yaml|job.json|-> [flags]
+  aegis cache gc --older-than <duration>
+  aegis version
+
+Run Flags:
+  -o, --output PATH      Write report JSON to PATH (default: stdout)
+  --junit PATH           Write JUnit XML test suite to PATH
+  --cache-dir DIR        Replay cache directory (default: .aegis/cache)
+  --cache                Read and write cache (default: enabled)
+  --record               Alias for --cache; refreshes cache entries
+  --no-cache             Disable cache reading and writing
+  --cache-only           Replay mode only; missing keys exit with status 2
+  --offline              Alias for --cache-only
+  --timeout DUR          Total run timeout (default: 120s)
+  --stage-timeout DUR    Per-stage LLM call timeout (default: 45s)
+  --fake-provider        Serve canned stage responses from disk
+  --fake-dir DIR         Directory containing canned stage responses
+  --                     Read job configuration from stdin
+
+Cache GC Flags:
+  --older-than DUR       Delete cache records older than duration (e.g., 720h)
+  --cache-dir DIR        Replay cache directory (default: .aegis/cache)
 ```
 
-Exit-2 paths of the binary print `error: <kind>: <message>` on stderr;
-`verify()` matches that prefix and raises `AegisEngineError(kind, ...)`.
+---
 
-## The replay cache and CI
+## Development and Testing
 
-Cache key = SHA-256 of `prompt` + `output` + normalized spec
-(context, assertions, `critique_model`; file renames count). **Assertion
-text is inside the key**: tightening `must_claim` misses cache and
-forces a live run. There is no replay-old-report-with-new-assertions
-path (deliberately rejected — see the design spec).
-
-The golden CI pattern (docs/recipes give full YAML):
-
-```yaml
-# record on main — refreshes the replay cache
-aegis run apps/policy-job.yaml --record
-
-# on PRs — zero model cost, zero flake
-aegis run apps/policy-job.yaml --offline
-```
-
-`--offline` (`--cache-only`) is **not a snapshot test**: the cached
-report replays with its own original ok state, so pass/fail stays the
-one from the recorded run. If you changed the assertion text on a PR
-branch you must re-record on `main` first (see `docs/recipes/` for the
-golden rule).
-
-Garbage-collect the store: `aegis cache gc --older-than 720h`.
-
-## Development
+### Run All Unit and Integration Tests
 
 ```bash
 go test ./...
-go test -run TestRunGoldenE2E ./cmd/aegis/   # committed golden e2e
-AEGIS_REGEN_GOLDEN=1 go test -run TestRunGoldenRegen ./cmd/aegis/  # refresh golden
-go build ./...
-python -m pytest -q python examples/pytest-example   # python shim + example
-python -m ruff check python examples
 ```
 
-Layout:
+### Run Golden End-to-End Test
+
+```bash
+go test -run TestRunGoldenE2E ./cmd/aegis/
+```
+
+### Regenerate Golden Test Reports
+
+```bash
+AEGIS_REGEN_GOLDEN=1 go test -run TestRunGoldenRegen ./cmd/aegis/
+```
+
+### Run Python Test Suite and Linters
+
+```bash
+pytest python/tests examples/pytest-example -q
+ruff check python examples
+```
+
+---
+
+## Repository Structure
 
 ```text
-cmd/aegis/           CLI
-internal/...         engine stages (claims, ground, reason, critique, codechk, assert), provider, cache
-testdata/jobs       committed example jobs
-testdata/fixtures   fake-provider stage fixtures for those jobs
-testdata/reports    committed golden reports (regen harness included)
-python/aegis        Python shim: verify(), Report dataclasses, pytest plugin
-python/tests        stub-binary tests, import hygiene, Go-golden schema contract
-examples/pytest-example   zero-model stub-binary pytest loop, run in CI
-docs/superpowers/specs/   the full design document
+cmd/aegis/               CLI entry point and command parsing
+internal/
+  assert/                Declarative assertion evaluation engine
+  cache/                 Content-addressed SHA-256 replay cache
+  claims/                Atomic claim extraction and stance analysis
+  codechk/               Go and Python AST code parse checkers
+  critique/              Adversarial referee and refute engine
+  engine/                Four-stage pipeline coordinator
+  ground/                Context grounding and citation matcher
+  job/                   Job specification YAML/JSON parser
+  matching/              Fuzzy string matching and token F1 scoring
+  provider/              OpenAI-compatible HTTP provider client
+  reason/                Logical reasoning step reconstruction
+  report/                Report data structures and serialization
+  stagejson/             Stage response JSON extraction helpers
+  testprov/              Mock provider harness for testing
+python/
+  aegis/                 Python client SDK and pytest plugin
+  tests/                 Schema contract and hygiene tests
+examples/
+  pytest-example/        Example test suite demonstrating stub-binary CI loop
+testdata/
+  jobs/                  Example verification job definitions
+  fixtures/              Canned stage responses for deterministic tests
+  reports/               Golden reference report documents
 ```
+
+---
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.

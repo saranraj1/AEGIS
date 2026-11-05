@@ -57,7 +57,7 @@ func realMain(args []string, stdout, stderr io.Writer) int {
 }
 
 func usage(w io.Writer) {
-	fmt.Fprint(w, `aegis — verify LLM output against declarative assertions
+	fmt.Fprint(w, `aegis - verify LLM output against declarative assertions
 
 Usage:
   aegis run <job.yaml|job.json|-> [flags]
