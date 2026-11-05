@@ -8,7 +8,7 @@ from .job import build_job, write_job_file
 from .report import Report
 from .runner import AegisEngineError, resolve_binary, run_binary
 
-__all__ = ["verify", "AegisEngineError", "Report", "current_node_id"]
+__all__ = ["AegisEngineError", "Report", "current_node_id", "verify"]
 
 # Node-id context so the pytest plugin can inject the running test's id
 # into verify() calls that omit id=. Kept out of the hot signature; a

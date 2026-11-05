@@ -21,11 +21,10 @@ import pytest
 _here = Path(__file__).resolve()
 _repo_root = _here.parents[2]
 try:
-    import aegis  # noqa: F401
+    import aegis
 except ModuleNotFoundError:  # not installed: use the sibling package
     sys.path.insert(0, str(_repo_root / "python"))
-
-import aegis  # noqa: E402
+    import aegis
 
 STUB_REPORT_OK = {
     "id": "example-job",
@@ -114,4 +113,4 @@ def aegis_stub(tmp_path_factory, monkeypatch, request):
     return aegis
 
 
-__all__ = ["aegis_stub", "STUB_REPORT_OK"]
+__all__ = ["STUB_REPORT_OK", "aegis_stub"]

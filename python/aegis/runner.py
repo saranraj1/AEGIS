@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess  # noqa: S404 - by design, the shim runs the CLI
+import subprocess
 from pathlib import Path
 
 from .report import Report

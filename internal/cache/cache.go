@@ -20,8 +20,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"path/filepath"
+	"path"
 	"sort"
+	"strings"
 
 	"github.com/aegis-verify/aegis/internal/job"
 )
@@ -29,7 +30,7 @@ import (
 // normalizeFilePath cleans paths and converts Windows backslashes to
 // forward slashes so cache keys are identical across platforms.
 func normalizeFilePath(p string) string {
-	return filepath.ToSlash(filepath.Clean(p))
+	return path.Clean(strings.ReplaceAll(p, "\\", "/"))
 }
 
 // File is one context file's contribution to the key: its path and raw bytes.

@@ -7,4 +7,4 @@ assertion failures with the disagreeing claims inlined.
 
 from .api import AegisEngineError, Report, verify
 
-__all__ = ["verify", "AegisEngineError", "Report"]
+__all__ = ["AegisEngineError", "Report", "verify"]
