@@ -215,7 +215,7 @@ func parsePython(ctx context.Context, pyBin, code string) (bool, string) {
 // resolvePython finds the python interpreter. An explicit binary that does
 // not exist resolves to "missing" so tests can pin the missing-python rule.
 func resolvePython(explicit string) (bool, string) {
-	names := []string{"python3"}
+	names := []string{"python3", "python", "py"}
 	if explicit != "" {
 		names = []string{explicit}
 	}

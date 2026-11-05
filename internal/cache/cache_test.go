@@ -152,3 +152,13 @@ func TestNormalizedSpecIsCanonicalJSON(t *testing.T) {
 		t.Error("critique_model key must always be present (null when unset)")
 	}
 }
+
+func TestKeyCrossPlatformPathSeparators(t *testing.T) {
+	j := baseJob(t, jobYAML)
+	k1 := Key(j, "out", []File{{Path: "internal/cache/key.go", Bytes: []byte("xyz")}})
+	k2 := Key(j, "out", []File{{Path: "internal\\cache\\key.go", Bytes: []byte("xyz")}})
+	k3 := Key(j, "out", []File{{Path: "./internal/cache/key.go", Bytes: []byte("xyz")}})
+	if k1 != k2 || k1 != k3 {
+		t.Fatalf("cross-platform paths must produce identical keys: k1=%s, k2=%s, k3=%s", k1, k2, k3)
+	}
+}

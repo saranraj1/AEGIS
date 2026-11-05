@@ -274,3 +274,26 @@ func TestGroundPromptCarriesContextAndClaims(t *testing.T) {
 		}
 	}
 }
+
+func TestGroundWindowRankingMatchesPunctuationTokens(t *testing.T) {
+	var b strings.Builder
+	for i := 1; i <= 100; i++ {
+		if i >= 80 && i <= 90 {
+			// Attached punctuation: sha256(prompt, output)
+			fmt.Fprintf(&b, "line %d code sha256(prompt, output, spec)\n", i)
+		} else {
+			fmt.Fprintf(&b, "line %d filler irrelevant\n", i)
+		}
+	}
+	big := ContextFile{Path: "code.txt", Text: b.String()}
+	claims := []report.Claim{{ID: "c0", Text: "Function sha256 hashes the prompt and output."}}
+	prov := testprov.NewSeq(`[{"claim_id":"c0","grounding":"not-in-context"}]`)
+	_, _, err := runGround(t, prov, claims, []ContextFile{big}, Options{TokenBudget: 60, WindowSize: 10, Stride: 5})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	u := prov.Requests[0].User
+	if !strings.Contains(u, "sha256(prompt") {
+		t.Errorf("window containing punctuation-attached identifier should be selected: %q", u)
+	}
+}

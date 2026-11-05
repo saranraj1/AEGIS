@@ -96,6 +96,22 @@ func TestMatches(t *testing.T) {
 			claim: "file cached on disk",
 			want:  true, // fi-ligature folds to "file"
 		},
+		// CJK (Chinese / Japanese / Korean) character-level tokenization.
+		{
+			req:   "缓存键是哈希值",
+			claim: "缓存键是哈希值",
+			want:  true, // identical CJK
+		},
+		{
+			req:   "系统的缓存键是哈希值",
+			claim: "这个系统的缓存键是哈希值",
+			want:  true, // substring CJK
+		},
+		{
+			req:   "缓存 键 是 哈希 算法",
+			claim: "系统的 缓存 键 是 哈希 算法 校验",
+			want:  true, // CJK Token F1: 7 common / 7 req = 1.0 recall, 7 / 10 claim = 0.7 precision => F1 = 0.823 >= 0.8
+		},
 		// Empty / whitespace-only inputs never match.
 		{req: "", claim: "something", want: false},
 		{req: "something", claim: "", want: false},

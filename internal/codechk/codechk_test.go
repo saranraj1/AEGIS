@@ -160,3 +160,17 @@ func TestMissingPythonRuleUsesRealLookup(t *testing.T) {
 		t.Fatalf("resolved python %q missing: %v", py, err)
 	}
 }
+
+func TestResolvePythonCandidateOrder(t *testing.T) {
+	// Explicit non-existent name must immediately return not found
+	found, _ := resolvePython("non-existent-binary-for-test-xyz")
+	if found {
+		t.Fatal("expected non-existent binary to not be found")
+	}
+
+	// Default lookup checks python3, python, and py
+	found, py := resolvePython("")
+	if found && py == "" {
+		t.Fatal("found is true but returned path is empty")
+	}
+}

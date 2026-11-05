@@ -20,10 +20,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"sort"
 
 	"github.com/aegis-verify/aegis/internal/job"
 )
+
+// normalizeFilePath cleans paths and converts Windows backslashes to
+// forward slashes so cache keys are identical across platforms.
+func normalizeFilePath(p string) string {
+	return filepath.ToSlash(filepath.Clean(p))
+}
 
 // File is one context file's contribution to the key: its path and raw bytes.
 type File struct {
@@ -43,7 +50,12 @@ func Key(j *job.Job, output string, files []File) string {
 // Maps are used (encoding/json sorts map keys) so the encoding is canonical.
 func normalizedSpec(j *job.Job, files []File) string {
 	sorted := make([]File, len(files))
-	copy(sorted, files)
+	for i, f := range files {
+		sorted[i] = File{
+			Path:  normalizeFilePath(f.Path),
+			Bytes: f.Bytes,
+		}
+	}
 	sort.Slice(sorted, func(a, b int) bool { return sorted[a].Path < sorted[b].Path })
 
 	fileEntries := make([]map[string]any, 0, len(sorted))

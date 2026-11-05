@@ -72,14 +72,22 @@ def run_binary(
     if timeout and timeout > 0:
         cmd += ["--timeout", f"{int(timeout * 1_000_000_000)}ns"]
 
-    proc = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-        timeout=None,  # engine-enforced timeout; python-side kill comes from caller signals
-        check=False,
-        shell=False,
-    )
+    proc_timeout = (timeout + 5.0) if (timeout and timeout > 0) else None
+    try:
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=proc_timeout,
+            check=False,
+            shell=False,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise AegisEngineError(
+            "run-timeout",
+            f"process execution timed out after {proc_timeout}s",
+            e.stderr or "",
+        ) from e
     if proc.returncode in (0, 1):
         try:
             return Report.from_json(proc.stdout)

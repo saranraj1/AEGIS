@@ -38,7 +38,10 @@ def build_job(
     if context_files or inline:
         ctx: dict[str, Any] = {}
         if context_files:
-            ctx["files"] = list(context_files)
+            ctx["files"] = [
+                Path(f).as_posix() if isinstance(f, (str, Path)) else str(f)
+                for f in context_files
+            ]
         if inline:
             ctx["inline"] = inline
         j["context"] = ctx

@@ -35,14 +35,51 @@ func Normalize(s string) string {
 	return strings.TrimSpace(b.String())
 }
 
-// TokenF1 computes F1 over whitespace-split tokens. Both inputs must already be
+// isCJK reports whether r is a CJK ideograph or Kana/Hangul syllable.
+func isCJK(r rune) bool {
+	return unicode.Is(unicode.Han, r) ||
+		unicode.Is(unicode.Hiragana, r) ||
+		unicode.Is(unicode.Katakana, r) ||
+		unicode.Is(unicode.Hangul, r)
+}
+
+// tokenize splits s on whitespace, and further segments CJK runes into individual
+// character tokens so non-whitespace-delimited languages can compute token F1.
+func tokenize(s string) []string {
+	fields := strings.Fields(s)
+	if len(fields) == 0 {
+		return nil
+	}
+	var tokens []string
+	for _, f := range fields {
+		var word strings.Builder
+		for _, r := range f {
+			if isCJK(r) {
+				if word.Len() > 0 {
+					tokens = append(tokens, word.String())
+					word.Reset()
+				}
+				tokens = append(tokens, string(r))
+			} else {
+				word.WriteRune(r)
+			}
+		}
+		if word.Len() > 0 {
+			tokens = append(tokens, word.String())
+		}
+	}
+	return tokens
+}
+
+// TokenF1 computes F1 over tokens (whitespace-split for alphabetic text,
+// character-segmented for CJK text). Both inputs must already be
 // normalized by the caller for meaningful results.
 func TokenF1(a, b string) float64 {
 	if a == "" || b == "" {
 		return 0
 	}
-	at := strings.Fields(a)
-	bt := strings.Fields(b)
+	at := tokenize(a)
+	bt := tokenize(b)
 	if len(at) == 0 || len(bt) == 0 {
 		return 0
 	}

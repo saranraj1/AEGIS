@@ -184,3 +184,15 @@ def test_missing_binary_is_friendly(monkeypatch):
     monkeypatch.setattr(shutil, "which", lambda n: None)
     with pytest.raises(FileNotFoundError):
         aegis.verify(prompt="p", output="o")
+
+
+def test_runner_timeout_expired(tmp_path, monkeypatch):
+    monkeypatch.setenv("AEGIS_BINARY", make_stub(tmp_path, report=STUB_REPORT_OK))
+    import subprocess
+    def fake_run(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd=["aegis"], timeout=0.1)
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    with pytest.raises(AegisEngineError) as ei:
+        aegis.verify(prompt="p", output="o", timeout=0.1)
+    assert ei.value.kind == "run-timeout"
+

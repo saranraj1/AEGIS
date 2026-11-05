@@ -23,6 +23,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/aegis-verify/aegis/internal/matching"
 	"github.com/aegis-verify/aegis/internal/provider"
@@ -288,6 +289,16 @@ func buildWindows(files []ContextFile, size, stride int) []lineWindow {
 	return out
 }
 
+// extractRankingTokens extracts normalized alphanumeric and underscore words
+// for sliding-window relevance ranking so identifiers and terms match cleanly
+// without punctuation obstruction.
+func extractRankingTokens(text string) []string {
+	norm := matching.Normalize(text)
+	return strings.FieldsFunc(norm, func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != '_'
+	})
+}
+
 // renderContext ranks windows by token overlap with the batch's claims,
 // selects within the token budget, and renders the selected windows in
 // document order. When the whole corpus fits the budget, everything is
@@ -300,14 +311,14 @@ func renderContext(files []ContextFile, batch []report.Claim, opts Options) stri
 
 	query := map[string]int{}
 	for _, c := range batch {
-		for _, tok := range strings.Fields(matching.Normalize(c.Text)) {
+		for _, tok := range extractRankingTokens(c.Text) {
 			query[tok]++
 		}
 	}
 	for i := range windows {
 		counts := map[string]int{}
 		for _, ln := range windows[i].lines {
-			for _, tok := range strings.Fields(matching.Normalize(ln)) {
+			for _, tok := range extractRankingTokens(ln) {
 				counts[tok]++
 			}
 		}
